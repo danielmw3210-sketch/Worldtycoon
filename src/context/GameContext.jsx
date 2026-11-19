@@ -16,7 +16,6 @@ export function GameProvider({ children }) {
   // Game & Map State
   const [plots, setPlots] = useState([]);
   const [selectedPlot, setSelectedPlot] = useState(null);
-  const [globalTaxPool, setGlobalTaxPool] = useState(18469.80);
   const [activeRegion, setActiveRegion] = useState('ALL');
   const [loading, setLoading] = useState(true);
 
@@ -25,7 +24,7 @@ export function GameProvider({ children }) {
     return localStorage.getItem('townforge_map_style') || 'carto_dark';
   });
 
-  // User & Wallet State (chain-mirrored; no wallet addresses in the UI)
+  // User & in-game NUM asset state (native-coin receive data loads in WalletStatus)
   const [wallet, setWallet] = useState({
     balance: 0,
     unlockedBalance: 0,
@@ -45,6 +44,7 @@ export function GameProvider({ children }) {
     daemonAddress: "http://127.0.0.1:48081",
     confirmationsRequired: 10,
     chain: null,
+    crownEstateFund: null,
     syncStatus: { synchronized: false, height: 0, targetHeight: 0, syncPercentage: 0 }
   });
 
@@ -63,6 +63,11 @@ export function GameProvider({ children }) {
 
   // Toast feedback
   const [toasts, setToasts] = useState([]);
+
+  const sessionHeaders = (headers = {}) => ({
+    ...headers,
+    Authorization: `Bearer ${user?.token || ''}`
+  });
 
   const addToast = (message, type = 'info') => {
     const id = Date.now() + Math.random();
@@ -120,7 +125,6 @@ export function GameProvider({ children }) {
       if (res.ok) {
         const data = await res.json();
         setPlots(data.plots || []);
-        setGlobalTaxPool(data.globalTaxPool || 0);
       }
     } catch (err) {
       console.error("Failed to fetch plots:", err);
@@ -152,6 +156,7 @@ export function GameProvider({ children }) {
           ...data.network,
           ...data.config,
           chain: data.chain || null,
+          crownEstateFund: data.crownEstateFund || null,
           daemonAddress: data.network?.daemonAddress || "http://127.0.0.1:48081",
           details: null
         });
@@ -320,7 +325,7 @@ export function GameProvider({ children }) {
     try {
       const res = await fetch(`/api/plots/${plotId}/claim`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: sessionHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ username: user?.username || "danie" })
       });
       const data = await res.json();
@@ -342,13 +347,13 @@ export function GameProvider({ children }) {
     try {
       const res = await fetch(`/api/plots/${plotId}/town-hall/claim-taxes`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: sessionHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ username: user?.username || "danie" })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to claim taxes");
 
-      addToast(`${data.claimedAmount} NUM tax dividend minting — ${data.job?.requiredConfirmations || 10} blocks to confirm`, 'success');
+      addToast(`${data.claimedAmount} NUM tax dividend submitted to the blockchain`, 'info');
       await refreshPlots();
       await refreshWallet();
       watchJob(data.job?.id);
@@ -364,7 +369,7 @@ export function GameProvider({ children }) {
     try {
       const res = await fetch(`/api/plots/${plotId}/collect-income`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: sessionHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ username: user?.username || "danie" })
       });
       const data = await res.json();
@@ -373,7 +378,7 @@ export function GameProvider({ children }) {
       const bonus = data.multiplier && data.multiplier !== 1
         ? ` (dice ×${data.multiplier})`
         : '';
-      addToast(`${data.amount.toLocaleString()} NUM${bonus} minting — settles after ${data.job?.requiredConfirmations || 10} blocks`, 'success');
+      addToast(`${data.amount.toLocaleString()} NUM${bonus} submitted as a Crown reserve transfer`, 'info');
       await refreshPlots();
       await refreshWallet();
       watchJob(data.job?.id);
@@ -389,7 +394,7 @@ export function GameProvider({ children }) {
     try {
       const res = await fetch(`/api/plots/${plotId}/upgrade`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: sessionHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ username: user?.username || "danie" })
       });
       const data = await res.json();
@@ -411,7 +416,7 @@ export function GameProvider({ children }) {
     try {
       const res = await fetch('/api/mint/issue', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: sessionHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           metal,
           weightGrams,
@@ -423,9 +428,10 @@ export function GameProvider({ children }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Minting failed");
 
-      addToast(`Struck ${data.coin.id} · ${data.coin.weightGrams}g ${data.coin.metal}`, 'success');
+      addToast(`Minting fee submitted on-chain; ${data.coin.id} is pending confirmation`, 'info');
       await refreshPlots();
       await refreshWallet();
+      watchJob(data.job?.id);
       return data;
     } catch (err) {
       addToast(err.message, 'error');
@@ -443,7 +449,6 @@ export function GameProvider({ children }) {
         plots,
         selectedPlot,
         setSelectedPlot,
-        globalTaxPool,
         activeRegion,
         setActiveRegion,
         mapStyle,

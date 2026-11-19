@@ -45,7 +45,8 @@ class UserManager {
           password: user.password || 'password123',
           role: user.role === 'admin' ? 'admin' : 'user',
           createdAt: user.createdAt || new Date().toISOString(),
-          wallet: user.wallet || this._emptyWallet()
+          wallet: user.wallet || this._emptyWallet(),
+          receiveAddress: user.receiveAddress || null
         });
       });
     } catch (err) {
@@ -115,7 +116,8 @@ class UserManager {
       password: password || 'password123',
       role: CONFIG.ADMIN_USERS.includes(cleanUser) ? 'admin' : 'user',
       createdAt: new Date().toISOString(),
-      wallet: this._emptyWallet()
+      wallet: this._emptyWallet(),
+      receiveAddress: null
     };
 
     this.users.set(cleanUser, record);
@@ -180,6 +182,16 @@ class UserManager {
   getUser(username) {
     if (!username) return null;
     return this.users.get(String(username).trim().toLowerCase()) || null;
+  }
+
+  setReceiveAddress(username, receiveAddress) {
+    const user = this.getUser(username);
+    if (!user) throw new Error('User not found');
+    if (!user.receiveAddress) {
+      user.receiveAddress = receiveAddress;
+      this.save();
+    }
+    return user.receiveAddress;
   }
 
   allUsernames() {

@@ -284,6 +284,74 @@ class NumistaRpcBridge {
     return { address: result.address, addressIndex: result.address_index, accountIndex };
   }
 
+  async getSubaddressReceiveInfo(accountIndex, addressIndex) {
+    const [balance, transfers] = await Promise.all([
+      this._walletRpc('get_balance', {
+        account_index: accountIndex,
+        address_indices: [addressIndex]
+      }),
+      this._walletRpc('get_transfers', {
+        in: true,
+        pending: true,
+        pool: true,
+        account_index: accountIndex,
+        subaddr_indices: [addressIndex]
+      })
+    ]);
+
+    const incoming = [
+      ...(transfers.in || []).map(transfer => ({ ...transfer, status: 'confirmed' })),
+      ...(transfers.pending || []).map(transfer => ({ ...transfer, status: 'pending' })),
+      ...(transfers.pool || []).map(transfer => ({ ...transfer, status: 'pending' }))
+    ]
+      .filter(transfer => transfer.subaddr_index?.minor === addressIndex)
+      .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+      .slice(0, 20)
+      .map(transfer => ({
+        txHash: transfer.txid,
+        amount: this._toNum(transfer.amount),
+        status: transfer.status,
+        confirmations: transfer.confirmations || 0,
+        timestamp: transfer.timestamp ? new Date(transfer.timestamp * 1000).toISOString() : null
+      }));
+
+    return {
+      balance: this._toNum(balance.balance),
+      unlockedBalance: this._toNum(balance.unlocked_balance),
+      pendingBalance: this._toNum(balance.unconfirmed_balance),
+      incomingTransfers: incoming
+    };
+  }
+
+  async getCrownEstateFundBalance() {
+    const url = CONFIG.NUMISTA.CROWN_ESTATE_WALLET_RPC_URL;
+    if (!url) throw new Error('Crown Estate watch-only wallet RPC is not configured');
+
+    const headers = { 'Content-Type': 'application/json' };
+    const user = CONFIG.NUMISTA.CROWN_ESTATE_WALLET_RPC_USER;
+    const pass = CONFIG.NUMISTA.CROWN_ESTATE_WALLET_RPC_PASS;
+    if (user && pass) {
+      headers.Authorization = `Basic ${Buffer.from(`${user}:${pass}`).toString('base64')}`;
+    }
+
+    const res = await fetch(`${url.replace(/\/$/, '')}/json_rpc`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ jsonrpc: '2.0', id: '0', method: 'get_balance', params: { account_index: 0 } }),
+      signal: AbortSignal.timeout(8000)
+    });
+    if (!res.ok) throw new Error(`Crown Estate wallet RPC HTTP ${res.status}`);
+    const json = await res.json();
+    if (json.error) throw new Error(json.error.message || 'Crown Estate wallet RPC error');
+
+    const result = json.result || {};
+    return {
+      balance: this._toNum(result.balance),
+      unlockedBalance: this._toNum(result.unlocked_balance),
+      pendingBalance: this._toNum(result.unconfirmed_balance)
+    };
+  }
+
   async getPrimaryAddress(accountIndex = 0) {
     const result = await this._walletRpc('get_address', { account_index: accountIndex });
     return result.address;

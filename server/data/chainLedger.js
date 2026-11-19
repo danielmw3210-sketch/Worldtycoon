@@ -5,12 +5,11 @@
  * index and mirror:
  *
  *   chainSettled – confirmed on-chain NUM asset balance (minus locked spends)
- *   localDelta   – non-chain game movements (bank, stocks, auctions)
  *   pending      – incoming mints waiting for confirmations
  *   locked       – outgoing spends reserved by an in-flight job
  *
- * `settled = chainSettled + localDelta` is the spendable balance. Every change
- * is mirrored onto the user record so existing UI routes keep working.
+ * Only confirmed chain balances are spendable. Pending and locked movements
+ * remain separate until their chain jobs confirm or revert.
  */
 
 import fs from 'fs';
@@ -49,9 +48,16 @@ class ChainLedger {
     try {
       if (!fs.existsSync(this.file)) return;
       const raw = JSON.parse(fs.readFileSync(this.file, 'utf8'));
+      const balances = raw.balances || {};
+      Object.values(balances).forEach(balance => {
+        balance.chainSettled = Number(balance.chainSettled) || 0;
+        balance.pending = Number(balance.pending) || 0;
+        balance.locked = Number(balance.locked) || 0;
+        delete balance.localDelta;
+      });
       this.state = {
         bootstrapped: !!raw.bootstrapped,
-        balances: raw.balances || {},
+        balances,
         usernames: raw.usernames || {},
         txs: Array.isArray(raw.txs) ? raw.txs : []
       };
@@ -80,7 +86,6 @@ class ChainLedger {
     if (!this.state.balances[key]) {
       this.state.balances[key] = {
         chainSettled: 0,
-        localDelta: 0,
         pending: 0,
         locked: 0
       };
@@ -90,7 +95,7 @@ class ChainLedger {
 
   getBalance(username) {
     const rec = this.ensure(username);
-    const settled = round(Math.max(0, rec.chainSettled + rec.localDelta));
+    const settled = round(Math.max(0, rec.chainSettled));
     return {
       username: String(username).toLowerCase(),
       settled,
@@ -105,7 +110,7 @@ class ChainLedger {
 
   lock(username, amount) {
     const rec = this.ensure(username);
-    const value = round(Math.min(Number(amount) || 0, Math.max(0, rec.chainSettled + rec.localDelta)));
+    const value = round(Math.min(Number(amount) || 0, Math.max(0, rec.chainSettled)));
     if (value <= 0) throw new Error('Nothing available to lock');
     rec.chainSettled = round(rec.chainSettled - value);
     rec.locked = round(rec.locked + value);
@@ -165,34 +170,6 @@ class ChainLedger {
     rec.chainSettled = round(rec.chainSettled + (Number(amount) || 0));
     this.syncWallet(username);
     this.save();
-  }
-
-  /* ---- local (off-chain) game movements ---- */
-
-  localAdjust(username, delta, description = 'Ledger adjustment', meta = {}) {
-    const rec = this.ensure(username);
-    const value = Number(delta) || 0;
-    if (value < 0 && rec.chainSettled + rec.localDelta + value < 0) {
-      throw new Error('Insufficient balance');
-    }
-    rec.localDelta = round(rec.localDelta + value);
-    const tx = this._record({
-      amount: value,
-      type: value >= 0 ? 'credit' : 'debit',
-      description,
-      status: 'local',
-      ...meta
-    });
-    this.syncWallet(username);
-    this.save();
-    return tx;
-  }
-
-  localTransfer(from, to, amount, description = 'Transfer') {
-    const value = round(amount);
-    if (value <= 0) throw new Error('Invalid transfer amount');
-    this.localAdjust(from, -value, description);
-    this.localAdjust(to, value, description);
   }
 
   /* ---- tx index ---- */
@@ -300,6 +277,18 @@ class ChainLedger {
     if (!this.adapter) return;
     const caps = await this.adapter.capabilities();
 
+    if (caps.mode === 'live' || caps.mode === 'simulate') {
+      const usernames = new Set([
+        ...userManager.allUsernames(),
+        CONFIG.CHAIN.TREASURY_USERNAME
+      ]);
+      for (const username of usernames) {
+        if (this.getUsernameRecord(username)) continue;
+        const record = await this.adapter.getUsernameKey(username);
+        if (record) this.markUsernameRegistered(username, { key: record.key || null });
+      }
+    }
+
     if (!this.state.bootstrapped && caps.mode === 'simulate') {
       for (const username of Object.keys(CONFIG.SIM.GENESIS_BALANCES)) {
         const units = await this.adapter.getAssetBalance(NUM_ASSET_ID, username);
@@ -329,7 +318,8 @@ class ChainLedger {
 
     const usernames = new Set([
       ...Object.keys(this.state.balances),
-      ...Object.keys(this.state.usernames)
+      ...Object.keys(this.state.usernames),
+      ...userManager.allUsernames()
     ]);
 
     const mismatches = [];

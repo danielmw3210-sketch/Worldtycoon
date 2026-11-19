@@ -147,7 +147,7 @@ export default function AccountModal() {
                 </span>
               </div>
               <h2 className="text-2xl font-black text-white mt-1">My Account & Deeds</h2>
-              <p className="text-xs text-slate-400 font-mono mt-0.5">Wallet address kept private • Ownership shown by username</p>
+              <p className="text-xs text-slate-400 font-mono mt-0.5">Receive address is in Wallet • In-game ownership shown by username</p>
             </div>
           </div>
           <div className="flex items-center gap-2">

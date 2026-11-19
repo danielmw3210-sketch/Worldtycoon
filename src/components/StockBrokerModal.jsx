@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 
 export default function StockBrokerModal() {
-  const { wallet, setActiveModal, refreshWallet, addToast } = useGame();
+  const { user, wallet, setActiveModal, refreshWallet, addToast } = useGame();
 
   const [stocks, setStocks] = useState([]);
   const [portfolio, setPortfolio] = useState({});
@@ -23,7 +23,9 @@ export default function StockBrokerModal() {
 
   const fetchStocks = async () => {
     try {
-      const res = await fetch('/api/stocks');
+      const res = await fetch(`/api/stocks?username=${encodeURIComponent(user?.username || '')}`, {
+        headers: { Authorization: `Bearer ${user?.token || ''}` }
+      });
       if (res.ok) {
         const data = await res.json();
         setStocks(data.stocks || []);
@@ -44,7 +46,7 @@ export default function StockBrokerModal() {
     fetchStocks();
     const interval = setInterval(fetchStocks, 4000);
     return () => clearInterval(interval);
-  }, []);
+  }, [user?.username, user?.token]);
 
   const handleTrade = async () => {
     const shares = parseInt(sharesInput, 10);
@@ -54,17 +56,21 @@ export default function StockBrokerModal() {
       setSubmitting(true);
       const res = await fetch('/api/stocks/trade', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${user?.token || ''}`
+        },
         body: JSON.stringify({
           ticker: selectedStock.ticker,
           action: orderAction,
-          shares
+          shares,
+          username: user?.username
         })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
 
-      addToast(`${orderAction === 'buy' ? 'Purchased' : 'Sold'} ${shares} shares of ${selectedStock.ticker}!`, 'success');
+      addToast(`${orderAction === 'buy' ? 'Purchase' : 'Sale'} submitted to the blockchain; holdings update after confirmation.`, 'info');
       await fetchStocks();
       await refreshWallet();
     } catch (err) {

@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useGame } from '../context/GameContext';
 import {
   ShieldCheck,
   CreditCard,
+  Copy,
   ArrowDownLeft,
   ArrowUpRight,
   Send,
@@ -17,6 +18,47 @@ export default function WalletStatus() {
   const [recipient, setRecipient] = useState('');
   const [amount, setAmount] = useState('');
   const [sending, setSending] = useState(false);
+  const [receiveInfo, setReceiveInfo] = useState(null);
+  const [receiveError, setReceiveError] = useState('');
+  const [copiedAddress, setCopiedAddress] = useState(false);
+
+  useEffect(() => {
+    if (!user?.username) return undefined;
+    let cancelled = false;
+
+    const refreshReceiveInfo = async () => {
+      try {
+        const res = await fetch(`/api/wallet/receive?username=${encodeURIComponent(user.username)}`, {
+          headers: { Authorization: `Bearer ${user.token}` }
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Unable to load receive address');
+        if (!cancelled) {
+          setReceiveInfo(data);
+          setReceiveError('');
+        }
+      } catch (err) {
+        if (!cancelled) setReceiveError(err.message);
+      }
+    };
+
+    refreshReceiveInfo();
+    const interval = setInterval(refreshReceiveInfo, 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [user?.username]);
+
+  const copyReceiveAddress = async () => {
+    try {
+      await navigator.clipboard.writeText(receiveInfo.address);
+      setCopiedAddress(true);
+      setTimeout(() => setCopiedAddress(false), 2000);
+    } catch (err) {
+      addToast(`Could not copy address: ${err.message}`, 'error');
+    }
+  };
 
   const handleSend = async () => {
     const val = parseFloat(amount);
@@ -157,12 +199,64 @@ export default function WalletStatus() {
                 </div>
                 <div className="flex justify-between text-slate-400">
                   <span>Ownership:</span>
-                  <span className="text-white">@{user?.username || '—'} (no wallet address shown)</span>
+                  <span className="text-white">@{user?.username || '—'}</span>
                 </div>
                 <div className="flex justify-between text-slate-400">
                   <span>Node:</span>
                   <span className="text-white">{network?.daemonAddress || '—'} · {network?.online ? 'online' : 'offline'}</span>
                 </div>
+              </div>
+
+              <div className="p-4 rounded-xl bg-slate-900/70 border border-slate-800 space-y-3">
+                <div>
+                  <div className="text-xs font-bold uppercase tracking-wider text-slate-300 font-mono">
+                    Receive native NUM
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    This account-specific Numista address receives native coin through the blockchain. In-game NUM asset transfers still use your username.
+                  </p>
+                </div>
+                {receiveError ? (
+                  <div className="text-xs text-amber-300">{receiveError}</div>
+                ) : receiveInfo ? (
+                  <>
+                    <div className="flex items-center gap-2">
+                      <code className="min-w-0 flex-1 p-2.5 rounded-lg bg-slate-950 border border-slate-800 text-[11px] text-slate-200 break-all select-all">
+                        {receiveInfo.address}
+                      </code>
+                      <button
+                        onClick={copyReceiveAddress}
+                        className="shrink-0 p-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200"
+                        aria-label="Copy receive address"
+                      >
+                        <Copy className="w-4 h-4" />
+                      </button>
+                    </div>
+                    {copiedAddress && <div className="text-[10px] text-emerald-400">Address copied</div>}
+                    <div className="flex justify-between text-xs font-mono">
+                      <span className="text-slate-400">Address balance</span>
+                      <span className="text-white">{Number(receiveInfo.balance).toFixed(4)} NUM</span>
+                    </div>
+                    <div className="flex justify-between text-xs font-mono">
+                      <span className="text-slate-400">Unlocked / pending</span>
+                      <span className="text-slate-200">
+                        {Number(receiveInfo.unlockedBalance).toFixed(4)} / {Number(receiveInfo.pendingBalance).toFixed(4)} NUM
+                      </span>
+                    </div>
+                    <div className="space-y-1 max-h-32 overflow-y-auto">
+                      {(receiveInfo.incomingTransfers || []).map(transfer => (
+                        <div key={transfer.txHash} className="flex justify-between gap-2 text-[10px] font-mono text-slate-400">
+                          <span className="truncate">{transfer.txHash}</span>
+                          <span className="shrink-0 text-emerald-300">
+                            +{Number(transfer.amount).toFixed(4)} · {transfer.status}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-xs text-slate-500">Creating your receive address…</div>
+                )}
               </div>
 
               {/* Transfers History */}
@@ -222,7 +316,7 @@ export default function WalletStatus() {
                     className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 font-mono text-xs text-white focus:outline-none focus:border-orange-500"
                   />
                   <p className="text-[10px] text-slate-500 font-mono mt-1">
-                    Transfers settle on-chain; wallet addresses stay private.
+                    In-game NUM transfers settle by username and do not need a recipient address.
                   </p>
                 </div>
 

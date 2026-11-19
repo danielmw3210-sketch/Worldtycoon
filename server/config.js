@@ -4,6 +4,7 @@ export const CONFIG = {
     NAME: "Numista Coin",
     TICKER: "NUM",
     DECIMALS: 12, // Atomic units like Monero piconero (1 NUM = 10^12 atomic units)
+    GAME_FUND_BLOCK_REWARD_NUM: 0.0005,
     BLOCK_TIME_SECS: 120,
     DAEMON_RPC_URL: process.env.NUMISTA_DAEMON_RPC || "http://127.0.0.1:48081",
     // 48082 is the daemon ZMQ port on Numista testnet, NOT wallet RPC.
@@ -13,6 +14,9 @@ export const CONFIG = {
     // Do not hardcode foreign addresses here; wallets are created on the node.
     RPC_USER: process.env.NUMISTA_RPC_USER || "",
     RPC_PASS: process.env.NUMISTA_RPC_PASS || "",
+    CROWN_ESTATE_WALLET_RPC_URL: process.env.NUMISTA_CROWN_ESTATE_WALLET_RPC || "",
+    CROWN_ESTATE_WALLET_RPC_USER: process.env.NUMISTA_CROWN_ESTATE_WALLET_RPC_USER || "",
+    CROWN_ESTATE_WALLET_RPC_PASS: process.env.NUMISTA_CROWN_ESTATE_WALLET_RPC_PASS || "",
     NETTYPE: "numista-testnet"
   },
 

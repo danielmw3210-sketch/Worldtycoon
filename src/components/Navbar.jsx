@@ -23,7 +23,6 @@ export default function Navbar() {
     logout, 
     wallet, 
     network, 
-    globalTaxPool, 
     setActiveModal, 
     isMining, 
     hashrate 
@@ -59,9 +58,17 @@ export default function Navbar() {
                 <span className="text-emerald-400 font-semibold">Synced Block #{network.height || 115}</span>
               </button>
               <span className="text-slate-600">|</span>
-              <span className="text-amber-400 flex items-center">
+              <span
+                className="text-amber-400 flex items-center"
+                title={network.crownEstateFund?.error || 'Live balance from the Crown Estate watch-only wallet'}
+              >
                 <Landmark className="w-3 h-3 mr-1" />
-                Tax Pool: {globalTaxPool.toLocaleString(undefined, { minimumFractionDigits: 1 })} NUM
+                Crown Estate Fund: {network.crownEstateFund?.available
+                  ? `${Number(network.crownEstateFund.balance).toFixed(12)} NUM`
+                  : 'unavailable'}
+                <span className="ml-1 text-[10px] text-slate-400">
+                  +{(network.crownEstateBlockReward ?? 0.0005).toFixed(4)}/block
+                </span>
               </span>
             </div>
           </div>

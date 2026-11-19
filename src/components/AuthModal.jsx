@@ -162,7 +162,7 @@ export default function AuthModal({ onLoginSuccess }) {
                   />
                 </div>
                 <span className="text-[10px] text-slate-500 font-mono mt-1 block">
-                  Deeds are registered to this username — no wallet address is ever shown.
+                  Open your wallet after signing up to get your unique Numista receive address.
                 </span>
               </div>
 

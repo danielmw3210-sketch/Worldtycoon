@@ -234,13 +234,15 @@ export default function BuyCryptoModal() {
 
               {/* Action Button */}
               <button
-                onClick={handleCreateOrder}
-                disabled={processing || !payAmount || parseFloat(payAmount) <= 0}
+                disabled
                 className="w-full py-3.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-40 text-white font-bold text-sm shadow-xl shadow-emerald-700/20 transition-all flex items-center justify-center space-x-2"
               >
                 <Sparkles className="w-4 h-4" />
-                <span>{processing ? 'Generating Checkout Invoice...' : `Proceed to Buy ${quote.numAmount} NUM`}</span>
+                <span>Purchases unavailable — payment provider not configured</span>
               </button>
+              <p className="text-center text-[11px] text-slate-400">
+                Use the receive address in Wallet for blockchain deposits. Native coin deposits do not automatically become in-game NUM.
+              </p>
 
             </div>
           ) : (

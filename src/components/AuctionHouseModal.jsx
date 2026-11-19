@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 
 export default function AuctionHouseModal() {
-  const { wallet, setActiveModal, refreshWallet, addToast } = useGame();
+  const { user, wallet, setActiveModal, refreshWallet, addToast } = useGame();
 
   const [auctions, setAuctions] = useState([]);
   const [selectedAuction, setSelectedAuction] = useState(null);
@@ -52,13 +52,16 @@ export default function AuctionHouseModal() {
       setSubmitting(true);
       const res = await fetch(`/api/auctions/${auctionId}/bid`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount: val })
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${user?.token || ''}`
+        },
+        body: JSON.stringify({ amount: val, username: user?.username })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
 
-      addToast(`Bid of ${val} NUM placed successfully! (Includes 3.5% Town Hall tax)`, 'success');
+      addToast('Bid submitted to the blockchain; it becomes active after confirmation.', 'info');
       setBidAmount('');
       await fetchAuctions();
       await refreshWallet();
@@ -189,8 +192,8 @@ export default function AuctionHouseModal() {
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-base font-mono text-white focus:outline-none focus:border-purple-500"
                     />
                     <div className="flex justify-between text-[11px] text-slate-500 font-mono">
-                      <span>Town Hall Tax (3.5%):</span>
-                      <span>{bidAmount ? (parseFloat(bidAmount) * 0.035).toFixed(2) : '0.00'} NUM</span>
+                      <span>On-chain escrow:</span>
+                      <span>{bidAmount ? parseFloat(bidAmount).toFixed(4) : '0.0000'} NUM</span>
                     </div>
                   </div>
                 </div>

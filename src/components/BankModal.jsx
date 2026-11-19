@@ -12,10 +12,10 @@ import {
 } from 'lucide-react';
 
 export default function BankModal() {
-  const { wallet, setActiveModal, refreshWallet, addToast } = useGame();
+  const { user, wallet, setActiveModal, refreshWallet, addToast } = useGame();
 
   const [bankData, setBankData] = useState({
-    userBank: { depositedNum: 50.0, apy: 0.092, accruedInterest: 1.482 },
+    userBank: { depositedNum: 0, apy: 0.092, accruedInterest: 0 },
     baseApy: 0.092
   });
 
@@ -25,7 +25,9 @@ export default function BankModal() {
 
   const fetchBank = async () => {
     try {
-      const res = await fetch('/api/bank');
+      const res = await fetch(`/api/bank?username=${encodeURIComponent(user?.username || '')}`, {
+        headers: { Authorization: `Bearer ${user?.token || ''}` }
+      });
       if (res.ok) {
         const data = await res.json();
         setBankData(data);
@@ -39,7 +41,7 @@ export default function BankModal() {
     fetchBank();
     const interval = setInterval(fetchBank, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [user?.username, user?.token]);
 
   const handleDeposit = async () => {
     const val = parseFloat(amount);
@@ -50,13 +52,16 @@ export default function BankModal() {
       setSubmitting(true);
       const res = await fetch('/api/bank/deposit', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount: val })
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${user?.token || ''}`
+        },
+        body: JSON.stringify({ amount: val, username: user?.username })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
 
-      addToast(`Deposited ${val} NUM into Bank Vault!`, 'success');
+      addToast('Deposit submitted to the blockchain; it appears after confirmation.', 'info');
       setAmount('');
       await fetchBank();
       await refreshWallet();
@@ -70,19 +75,24 @@ export default function BankModal() {
   const handleWithdraw = async () => {
     const val = parseFloat(amount);
     if (!val || val <= 0) return addToast('Enter a valid withdraw amount', 'error');
-    if (val > bankData.userBank.depositedNum) return addToast('Withdrawal exceeds deposited funds', 'error');
+    if (val > (bankData.userBank.availableToWithdraw ?? bankData.userBank.depositedNum)) {
+      return addToast('Withdrawal exceeds deposited funds', 'error');
+    }
 
     try {
       setSubmitting(true);
       const res = await fetch('/api/bank/withdraw', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount: val })
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${user?.token || ''}`
+        },
+        body: JSON.stringify({ amount: val, username: user?.username })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
 
-      addToast(`Withdrew ${val} NUM from Bank Vault!`, 'success');
+      addToast('Withdrawal submitted to the blockchain; it appears after confirmation.', 'info');
       setAmount('');
       await fetchBank();
       await refreshWallet();
@@ -96,11 +106,18 @@ export default function BankModal() {
   const handleClaimInterest = async () => {
     try {
       setSubmitting(true);
-      const res = await fetch('/api/bank/claim-interest', { method: 'POST' });
+      const res = await fetch('/api/bank/claim-interest', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${user?.token || ''}`
+        },
+        body: JSON.stringify({ username: user?.username })
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
 
-      addToast(`Claimed ${data.claimed.toFixed(4)} NUM in bank yield!`, 'success');
+      addToast('Interest payment submitted to the blockchain.', 'info');
       await fetchBank();
       await refreshWallet();
     } catch (err) {
@@ -205,7 +222,7 @@ export default function BankModal() {
               <div className="flex items-center justify-between text-xs text-slate-400">
                 <span>{activeTab === 'deposit' ? 'Wallet Balance' : 'Vault Deposited'}:</span>
                 <span className="font-mono text-white font-semibold">
-                  {activeTab === 'deposit' ? `${wallet.balance.toFixed(2)} NUM` : `${(userBank.depositedNum || 0).toFixed(2)} NUM`}
+                  {activeTab === 'deposit' ? `${wallet.balance.toFixed(2)} NUM`                   : `${(userBank.availableToWithdraw ?? userBank.depositedNum ?? 0).toFixed(2)} NUM`}
                 </span>
               </div>
 
@@ -218,7 +235,7 @@ export default function BankModal() {
                   className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-lg font-mono text-white focus:outline-none focus:border-emerald-500 pr-20"
                 />
                 <button
-                  onClick={() => setAmount(activeTab === 'deposit' ? wallet.balance.toString() : (userBank.depositedNum || 0).toString())}
+                  onClick={() => setAmount(activeTab === 'deposit' ? wallet.balance.toString() : (userBank.availableToWithdraw ?? userBank.depositedNum ?? 0).toString())}
                   className="absolute right-3 top-1/2 -translate-y-1/2 px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] font-mono font-bold text-emerald-400 transition-colors"
                 >
                   MAX
@@ -233,7 +250,7 @@ export default function BankModal() {
                 <Coins className="w-4 h-4" />
                 <span>
                   {submitting 
-                    ? 'Confirming Transaction...' 
+                    ? 'Submitting to Blockchain...' 
                     : activeTab === 'deposit' 
                       ? `Deposit ${amount || '0'} NUM` 
                       : `Withdraw ${amount || '0'} NUM`

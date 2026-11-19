@@ -38,11 +38,11 @@ function round(n, places = 6) {
 class GameStore {
   constructor() {
     this.plots = generateGridPlots();
-    this.globalTaxPool = 18469.80;
     this.mintLedger = [];
     this.statePath = process.env.NUMISTA_STATE_FILE || path.join(__dirname, 'gameState.json');
     this._saveTimer = null;
     this.pendingMining = new Map();
+    this.pendingUsernameRegistrations = new Set();
 
     // Default Auction House Listings
     this.auctions = [
@@ -51,11 +51,11 @@ class GameStore {
         title: "Highland Lithium & Granite Mineral Rights",
         plotId: "UK-HIG-001",
         seller: "scots_pioneer",
-        currentBid: 120.00,
-        highestBidder: "wharf_capital",
+        currentBid: 0,
+        highestBidder: null,
         buyoutPrice: 250.00,
         endsAt: new Date(Date.now() + 86400000 * 2).toISOString(),
-        bidsCount: 6,
+        bidsCount: 0,
         category: "Mineral Rights"
       },
       {
@@ -63,11 +63,11 @@ class GameStore {
         title: "Ancient Cornish Tin & Silver Smelting Relic NFT",
         plotId: "UK-COR-001",
         seller: "bristol_syndicate",
-        currentBid: 85.50,
-        highestBidder: "ulster_marine",
+        currentBid: 0,
+        highestBidder: null,
         buyoutPrice: 190.00,
         endsAt: new Date(Date.now() + 86400000 * 1.5).toISOString(),
-        bidsCount: 9,
+        bidsCount: 0,
         category: "Historic Relic"
       },
       {
@@ -75,11 +75,11 @@ class GameStore {
         title: "Radcliffe Architectural Master Blueprint #04",
         plotId: "UK-OXF-001",
         seller: "crown_treasury",
-        currentBid: 45.00,
-        highestBidder: "manchester_guild",
+        currentBid: 0,
+        highestBidder: null,
         buyoutPrice: 110.00,
         endsAt: new Date(Date.now() + 86400000 * 3).toISOString(),
-        bidsCount: 3,
+        bidsCount: 0,
         category: "Building Blueprint"
       }
     ];
@@ -128,17 +128,8 @@ class GameStore {
       }
     ];
 
-    this.userBank = {
-      depositedNum: 50.0,
-      apy: CONFIG.ECONOMY.BANK_BASE_APY,
-      accruedInterest: 1.482,
-      lastInterestCalc: Date.now()
-    };
-
-    this.userStocks = {
-      "UK-REIT": 10,
-      "NUM-MINE": 5
-    };
+    this.userBanks = {};
+    this.userStocks = {};
 
     mintQueue.load();
     mintQueue.setHandlers({
@@ -164,8 +155,15 @@ class GameStore {
     try {
       if (!fs.existsSync(this.statePath)) return;
       const raw = JSON.parse(fs.readFileSync(this.statePath, 'utf8'));
-      if (raw.globalTaxPool != null) this.globalTaxPool = raw.globalTaxPool;
       if (Array.isArray(raw.mints)) this.mintLedger = raw.mints;
+      if (raw.userBanks && typeof raw.userBanks === 'object') this.userBanks = raw.userBanks;
+      if (raw.userStocks && typeof raw.userStocks === 'object') this.userStocks = raw.userStocks;
+      if (Array.isArray(raw.auctions)) {
+        this.auctions = this.auctions.map(auction => {
+          const saved = raw.auctions.find(item => item.id === auction.id);
+          return saved?.escrowOnChain ? { ...auction, ...saved } : auction;
+        });
+      }
 
       const byId = new Map(this.plots.map(p => [p.id, p]));
       let restored = 0;
@@ -174,7 +172,13 @@ class GameStore {
         if (!plot) return;
         plot.isClaimed = !!saved.isClaimed;
         plot.owner = saved.owner || null;
-        if (saved.building) plot.building = saved.building;
+        if (saved.building) {
+          plot.building = saved.building;
+          if (plot.building.type === 'town_hall' && plot.building.stats) {
+            plot.building.stats.treasuryBalance = 0;
+            plot.building.stats.totalTaxesCollected = 0;
+          }
+        }
         if (saved.pendingJobId) plot.pendingJobId = saved.pendingJobId;
         plot.nftState = this._normaliseNftState(plot, saved.nftState);
         if (plot.isClaimed) restored++;
@@ -242,8 +246,10 @@ class GameStore {
     try {
       const payload = {
         savedAt: new Date().toISOString(),
-        globalTaxPool: this.globalTaxPool,
         mints: this.mintLedger,
+        userBanks: this.userBanks,
+        userStocks: this.userStocks,
+        auctions: this.auctions,
         plots: this.plots
           .filter(p => p.isClaimed || p.pendingJobId || p.nftState?.stage !== 'unminted')
           .map(p => ({
@@ -276,6 +282,11 @@ class GameStore {
     const all = [...mintQueue.jobs, ...mintQueue.history];
     let recovered = 0;
     for (const job of all) {
+      if (!['confirmed', 'reverted', 'failed', 'revert_failed'].includes(job.status)) {
+        job.steps
+          .filter(step => step.operation?.kind === 'register_username' && step.status !== 'confirmed')
+          .forEach(step => this.pendingUsernameRegistrations.add(step.operation.username));
+      }
       if (job.gameApplied) continue;
       if (job.status === 'confirmed') {
         this._onJobConfirmed(job);
@@ -292,12 +303,14 @@ class GameStore {
   }
 
   tickSimulation() {
-    if (this.userBank.depositedNum > 0) {
-      const annualRate = this.userBank.apy;
-      const secondsPerYear = 365 * 86400;
-      const accrued = (this.userBank.depositedNum * annualRate * 15) / secondsPerYear;
-      this.userBank.accruedInterest += accrued;
-    }
+    Object.values(this.userBanks).forEach(bank => {
+      if (bank.depositedNum > 0) {
+        const annualRate = bank.apy;
+        const secondsPerYear = 365 * 86400;
+        const accrued = (bank.depositedNum * annualRate * 15) / secondsPerYear;
+        bank.accruedInterest += accrued;
+      }
+    });
 
     this.stocks.forEach(stock => {
       const deltaPercent = (Math.random() - 0.48) * 0.02;
@@ -312,13 +325,6 @@ class GameStore {
     const accrualCapHours = CONFIG.ECONOMY.INCOME_ACCRUAL_CAP_HOURS || 24;
 
     this.plots.forEach(plot => {
-      if (plot.building && plot.building.type === 'town_hall') {
-        const regionalTax = +(Math.random() * 0.25).toFixed(3);
-        plot.building.stats.treasuryBalance = +(plot.building.stats.treasuryBalance + regionalTax).toFixed(2);
-        plot.building.stats.totalTaxesCollected = +(plot.building.stats.totalTaxesCollected + regionalTax).toFixed(2);
-        this.globalTaxPool = +(this.globalTaxPool + regionalTax).toFixed(2);
-      }
-
       // Income properties accrue rent every tick until the owner collects.
       if (plot.isClaimed && plot.building?.incomePerHour > 0) {
         const stats = plot.building.stats || (plot.building.stats = {});
@@ -404,9 +410,12 @@ class GameStore {
       nftState: { ...plot.nftState }
     };
 
+    const registrationSteps = this._registrationSteps([cleanUsername, TREASURY]);
     chainLedger.lock(cleanUsername, cost);
 
-    const job = mintQueue.enqueue({
+    let job;
+    try {
+      job = mintQueue.enqueue({
       type: 'claim',
       username: cleanUsername,
       plotId: plot.id,
@@ -415,6 +424,7 @@ class GameStore {
       snapshot,
       meta: { name: plot.name, rarityName: plot.rarityName },
       steps: [
+        ...registrationSteps,
         {
           key: 'payment',
           label: `Pay ${cost.toLocaleString()} NUM deed price`,
@@ -434,26 +444,6 @@ class GameStore {
             to: cleanUsername,
             amountUnits: toUnits(cost)
           }
-        },
-        {
-          key: 'register_player',
-          label: `Register @${cleanUsername} on-chain`,
-          operation: {
-            kind: 'register_username',
-            username: cleanUsername,
-            key: CONFIG.CHAIN.ISSUER_PUBLIC_KEY
-          },
-          compensate: null
-        },
-        {
-          key: 'register_treasury',
-          label: `Register @${TREASURY} on-chain`,
-          operation: {
-            kind: 'register_username',
-            username: TREASURY,
-            key: CONFIG.CHAIN.ISSUER_PUBLIC_KEY
-          },
-          compensate: null
         },
         {
           key: 'create',
@@ -487,7 +477,12 @@ class GameStore {
           }
         }
       ]
-    });
+      });
+    } catch (err) {
+      chainLedger.unlock(cleanUsername, cost);
+      registrationSteps.forEach(step => this.pendingUsernameRegistrations.delete(step.operation.username));
+      throw err;
+    }
 
     // Optimistic state: the plot is reserved while the mint confirms.
     plot.isClaimed = true;
@@ -561,30 +556,18 @@ class GameStore {
     stats.accruedIncome = 0;
     chainLedger.addPending(clean, amount);
 
-    const job = mintQueue.enqueue({
+    const job = this._enqueueNumTransfer({
       type: 'income',
-      username: clean,
-      plotId: plot.id,
-      assetId: NUM_ASSET_ID,
-      requiredConfirmations: REQUIRED_CONFIRMATIONS,
-      snapshot,
-      meta: { name: plot.name, building: building.name },
-      steps: [
-        {
-          key: 'mint_income',
-          label: `Mint ${amount.toLocaleString()} NUM rental income`,
-          operation: {
-            kind: 'mint',
-            assetId: NUM_ASSET_ID,
-            assetType: CURRENCY_ASSET_TYPE,
-            recipient: clean,
-            amountUnits: toUnits(amount)
-          },
-          compensate: null
-        }
-      ]
+      from: TREASURY,
+      to: clean,
+      amount,
+      description: `Pay ${amount.toLocaleString()} NUM rental income`,
+      snapshot: { ...snapshot, username: clean, plotId: plot.id },
+      meta: { plotId: plot.id, name: plot.name, building: building.name }
     });
 
+    chainLedger.addPending(clean, amount);
+    stats.accruedIncome = 0;
     this.scheduleSave();
 
     return {
@@ -702,19 +685,9 @@ class GameStore {
 
     const admin = userManager.getUser(username);
     if (!admin) throw new Error('Admin account required');
-    if (chainLedger.getBalance(username).available < fee) {
-      throw new Error(`Insufficient balance to pay the minting fee (${fee} NUM)`);
-    }
-
-    chainLedger.localAdjust(username, -fee, `Minting fee · ${weight}g ${metal} at ${mint.label}`);
-
     const owner = userManager.getUser(mint.owner);
-    if (owner && owner.username !== username) {
-      chainLedger.localAdjust(owner.username, fee, `Mint seigniorage [${mint.label}]`);
-    } else if (!owner) {
-      this.globalTaxPool = +(this.globalTaxPool + fee).toFixed(4);
-    }
-
+    const payer = String(username || '').toLowerCase();
+    const recipient = owner && owner.username !== payer ? owner.username : TREASURY;
     const coin = {
       id: `NUM-${metal.toUpperCase()}-${String(this.mintLedger.length + 1).padStart(6, '0')}`,
       metal,
@@ -727,11 +700,15 @@ class GameStore {
       createdAt: new Date().toISOString()
     };
 
-    this.mintLedger.unshift(coin);
-    if (this.mintLedger.length > 500) this.mintLedger.pop();
-    this.scheduleSave();
-
-    return coin;
+    const job = this._enqueueNumTransfer({
+      type: 'mint_issue',
+      from: payer,
+      to: recipient,
+      amount: fee,
+      description: `Minting fee · ${weight}g ${metal} at ${mint.label}`,
+      snapshot: { coin }
+    });
+    return { pending: true, coin, job: mintQueue.publicJob(job) };
   }
 
   getMintLedger(limit = 100) {
@@ -749,32 +726,19 @@ class GameStore {
     if (treasury <= 0) throw new Error("Town Hall treasury is currently empty");
 
     const clean = String(username || '').toLowerCase();
+    const job = this._enqueueNumTransfer({
+      type: 'town_hall',
+      from: TREASURY,
+      to: clean,
+      amount: treasury,
+      description: `Pay ${treasury.toLocaleString()} NUM municipal tax dividend`,
+      snapshot: { plotId: plot.id, username: clean, treasuryBefore: treasury },
+      meta: { plotId: plot.id, name: plot.name }
+    });
+
     stats.treasuryBalance = 0;
     stats.subsidiesDistributed = (stats.subsidiesDistributed || 0) + treasury;
     chainLedger.addPending(clean, treasury);
-
-    const job = mintQueue.enqueue({
-      type: 'town_hall',
-      username: clean,
-      plotId: plot.id,
-      assetId: NUM_ASSET_ID,
-      requiredConfirmations: REQUIRED_CONFIRMATIONS,
-      snapshot: { plotId: plot.id, amount: treasury, treasuryBefore: treasury },
-      meta: { name: plot.name },
-      steps: [{
-        key: 'mint_taxes',
-        label: `Mint ${treasury.toLocaleString()} NUM municipal tax dividend`,
-        operation: {
-          kind: 'mint',
-          assetId: NUM_ASSET_ID,
-          assetType: CURRENCY_ASSET_TYPE,
-          recipient: clean,
-          amountUnits: toUnits(treasury)
-        },
-        compensate: null
-      }]
-    });
-
     this.scheduleSave();
 
     return {
@@ -787,69 +751,197 @@ class GameStore {
   }
 
   /* ------------------------------------------------------------------ */
-  /* Bank / stocks / auctions (game-local, no minting)                  */
+  /* Bank / stocks / auctions (NUM movements settle on-chain)           */
   /* ------------------------------------------------------------------ */
 
-  bankDeposit(amount, username = "danie") {
+  _userBank(username) {
+    const clean = String(username || '').toLowerCase();
+    if (!this.userBanks[clean]) {
+      this.userBanks[clean] = {
+        depositedNum: 0,
+        apy: CONFIG.ECONOMY.BANK_BASE_APY,
+        accruedInterest: 0,
+        lastInterestCalc: Date.now()
+      };
+    }
+    return this.userBanks[clean];
+  }
+
+  getBankInfo(username) {
+    const clean = String(username || '').toLowerCase();
+    const bank = this._userBank(clean);
+    const pendingWithdraw = this._activeJobs('bank_withdraw', job => job.snapshot?.username === clean)
+      .reduce((sum, job) => sum + Number(job.snapshot?.amount || 0), 0);
+    const pendingDeposit = this._activeJobs('bank_deposit', job => job.snapshot?.from === clean)
+      .reduce((sum, job) => sum + Number(job.snapshot?.amount || 0), 0);
+    return {
+      ...bank,
+      pendingDeposit,
+      pendingWithdraw,
+      availableToWithdraw: Math.max(0, bank.depositedNum - pendingWithdraw)
+    };
+  }
+
+  _enqueueNumTransfer({ type, from, to, amount, description, snapshot = {}, meta = {}, extraSteps = [] }) {
+    const value = +Number(amount || 0).toFixed(4);
+    if (!from || !to || from === to) throw new Error('Invalid on-chain transfer parties');
+    if (!(value > 0)) throw new Error('Invalid transfer amount');
+    if (chainLedger.getBalance(from).available < value) throw new Error('Insufficient blockchain balance');
+
+    const registrationSteps = this._registrationSteps([from, to, snapshot.previousBidder]);
+    chainLedger.lock(from, value);
+    try {
+      const job = mintQueue.enqueue({
+        type,
+        username: from,
+        assetId: NUM_ASSET_ID,
+        requiredConfirmations: REQUIRED_CONFIRMATIONS,
+        snapshot: { ...snapshot, amount: value, from, to },
+        meta: { name: description, ...meta },
+        steps: [...registrationSteps, {
+          key: 'transfer',
+          label: description,
+          operation: {
+            kind: 'transfer',
+            assetId: NUM_ASSET_ID,
+            assetType: CURRENCY_ASSET_TYPE,
+            from,
+            to,
+            amountUnits: toUnits(value)
+          },
+          compensate: {
+            kind: 'transfer',
+            assetId: NUM_ASSET_ID,
+            assetType: CURRENCY_ASSET_TYPE,
+            from: to,
+            to: from,
+            amountUnits: toUnits(value)
+          }
+        }, ...extraSteps]
+      });
+      return job;
+    } catch (err) {
+      chainLedger.unlock(from, value);
+      registrationSteps.forEach(step => this.pendingUsernameRegistrations.delete(step.operation.username));
+      throw err;
+    }
+  }
+
+  _registrationSteps(usernames) {
+    const unique = [...new Set(usernames.filter(Boolean).map(name => String(name).toLowerCase()))];
+    const missing = unique.filter(name => !chainLedger.getUsernameRecord(name));
+    const alreadyPending = missing.find(name => this.pendingUsernameRegistrations.has(name));
+    if (alreadyPending) throw new Error(`On-chain username registration for @${alreadyPending} is already pending`);
+
+    return missing.map(username => {
+      this.pendingUsernameRegistrations.add(username);
+      return {
+        key: `register_${username}`,
+        label: `Register @${username} on-chain`,
+        operation: {
+          kind: 'register_username',
+          username,
+          key: CONFIG.CHAIN.ISSUER_PUBLIC_KEY
+        },
+        compensate: null
+      };
+    });
+  }
+
+  _recordRegistrations(job) {
+    job.steps
+      .filter(step => step.operation?.kind === 'register_username')
+      .forEach(step => {
+        this.pendingUsernameRegistrations.delete(step.operation.username);
+        if (step.status === 'confirmed') {
+          chainLedger.markUsernameRegistered(step.operation.username, {
+            key: step.operation.key,
+            jobId: job.id
+          });
+        }
+      });
+  }
+
+  _activeJobs(type, matches) {
+    return [...mintQueue.jobs, ...mintQueue.history].filter(job =>
+      job.type === type &&
+      !job.gameApplied &&
+      !['confirmed', 'reverted', 'failed'].includes(job.status) &&
+      matches(job)
+    );
+  }
+
+  bankDeposit(amount, username) {
     const value = Number(amount);
     if (value <= 0) throw new Error("Invalid deposit amount");
     const clean = String(username || '').toLowerCase();
-    if (chainLedger.getBalance(clean).available < value) throw new Error("Insufficient wallet balance");
-
-    chainLedger.localAdjust(clean, -value, "Deposit to Numista Bank Vault");
-    this.userBank.depositedNum += value;
-    return this.userBank;
+    const bank = this._userBank(clean);
+    const job = this._enqueueNumTransfer({
+      type: 'bank_deposit',
+      from: clean,
+      to: TREASURY,
+      amount: value,
+      description: `Deposit ${value} NUM to Numista Bank Vault`
+    });
+    return { ...bank, pending: true, job: mintQueue.publicJob(job) };
   }
 
-  bankWithdraw(amount, username = "danie") {
+  bankWithdraw(amount, username) {
     const value = Number(amount);
     if (value <= 0) throw new Error("Invalid withdraw amount");
-    if (this.userBank.depositedNum < value) throw new Error("Withdraw exceeds deposited funds");
+    const clean = String(username || '').toLowerCase();
+    const bank = this._userBank(clean);
+    const pending = this._activeJobs('bank_withdraw', job => job.snapshot?.username === clean)
+      .reduce((sum, job) => sum + Number(job.snapshot?.amount || 0), 0);
+    if (bank.depositedNum - pending < value) throw new Error("Withdraw exceeds deposited funds");
 
-    this.userBank.depositedNum -= value;
-    chainLedger.localAdjust(String(username || '').toLowerCase(), value, "Withdraw from Numista Bank Vault");
-    return this.userBank;
+    const job = this._enqueueNumTransfer({
+      type: 'bank_withdraw',
+      from: TREASURY,
+      to: clean,
+      amount: value,
+      description: `Withdraw ${value} NUM from Numista Bank Vault`,
+      snapshot: { username: clean }
+    });
+    return { ...bank, pending: true, job: mintQueue.publicJob(job) };
   }
 
-  bankClaimInterest(username = "danie") {
-    const accrued = this.userBank.accruedInterest;
+  bankClaimInterest(username) {
+    const clean = String(username || '').toLowerCase();
+    const bank = this._userBank(clean);
+    if (this._activeJobs('bank_interest', job => job.snapshot?.username === clean).length) {
+      throw new Error('An interest claim is already pending');
+    }
+    const accrued = bank.accruedInterest;
     if (accrued <= 0.0001) throw new Error("No interest to claim yet");
 
-    const clean = String(username || '').toLowerCase();
     const amount = +accrued.toFixed(4);
-    this.userBank.accruedInterest = 0;
+    bank.accruedInterest = +(accrued - amount).toFixed(6);
+    let job;
+    try {
+      job = this._enqueueNumTransfer({
+        type: 'bank_interest',
+        from: TREASURY,
+        to: clean,
+        amount,
+        description: `Pay ${amount.toLocaleString()} NUM bank interest`,
+        snapshot: { username: clean, accruedBefore: accrued }
+      });
+    } catch (err) {
+      bank.accruedInterest = accrued;
+      throw err;
+    }
     chainLedger.addPending(clean, amount);
-
-    const job = mintQueue.enqueue({
-      type: 'bank_interest',
-      username: clean,
-      assetId: NUM_ASSET_ID,
-      requiredConfirmations: REQUIRED_CONFIRMATIONS,
-      snapshot: { amount, accruedBefore: accrued },
-      meta: { name: 'Numista Bank' },
-      steps: [{
-        key: 'mint_interest',
-        label: `Mint ${amount.toLocaleString()} NUM staking yield`,
-        operation: {
-          kind: 'mint',
-          assetId: NUM_ASSET_ID,
-          assetType: CURRENCY_ASSET_TYPE,
-          recipient: clean,
-          amountUnits: toUnits(amount)
-        },
-        compensate: null
-      }]
-    });
 
     return {
       claimed: amount,
       pending: true,
       job: mintQueue.publicJob(job),
-      bank: this.userBank
+      bank
     };
   }
 
-  placeBid(auctionId, bidAmount, username = "danie") {
+  placeBid(auctionId, bidAmount, username) {
     const auc = this.auctions.find(a => a.id === auctionId);
     if (!auc) throw new Error("Auction listing not found");
     if (bidAmount <= auc.currentBid) {
@@ -857,23 +949,60 @@ class GameStore {
     }
 
     const clean = String(username || '').toLowerCase();
-    if (chainLedger.getBalance(clean).available < bidAmount) {
-      throw new Error("Insufficient wallet balance to place bid");
+    const previousBid = Number(auc.currentBid) || 0;
+    const previousBidder = auc.highestBidder;
+    const transferAmount = previousBidder === clean ? bidAmount - previousBid : bidAmount;
+    const refundAmount = previousBidder && previousBidder !== clean ? previousBid : 0;
+    const refundSteps = refundAmount > 0 ? [{
+      key: 'refund_previous_bid',
+      label: `Refund ${refundAmount} NUM to @${previousBidder}`,
+      operation: {
+        kind: 'transfer',
+        assetId: NUM_ASSET_ID,
+        assetType: CURRENCY_ASSET_TYPE,
+        from: TREASURY,
+        to: previousBidder,
+        amountUnits: toUnits(refundAmount)
+      },
+      compensate: {
+        kind: 'transfer',
+        assetId: NUM_ASSET_ID,
+        assetType: CURRENCY_ASSET_TYPE,
+        from: previousBidder,
+        to: TREASURY,
+        amountUnits: toUnits(refundAmount)
+      }
+    }] : [];
+
+    if (auc.pendingBidJobId || this._activeJobs('auction_bid', job => job.snapshot?.auctionId === auc.id).length) {
+      throw new Error('Another bid is still confirming for this auction');
     }
-
-    chainLedger.localAdjust(clean, -bidAmount, `Placed bid on auction #${auc.id} (${auc.title})`);
-
-    auc.currentBid = bidAmount;
-    auc.highestBidder = clean; // Username only, keeping wallet address private!
-    auc.bidsCount += 1;
-
-    const tax = +(bidAmount * 0.035).toFixed(3);
-    this.globalTaxPool += tax;
-
-    return auc;
+    if (refundAmount > 0 && chainLedger.getBalance(TREASURY).available < refundAmount) {
+      throw new Error('The previous on-chain escrow is not available for refund');
+    }
+    const job = this._enqueueNumTransfer({
+      type: 'auction_bid',
+      from: clean,
+      to: TREASURY,
+      amount: transferAmount,
+      description: `Bid on auction #${auc.id}`,
+      snapshot: {
+        username: clean,
+        auctionId: auc.id,
+        bidAmount: Number(bidAmount),
+        previousBid,
+        previousBidder,
+        refundAmount
+      },
+      extraSteps: refundSteps
+    });
+    if (refundAmount > 0) chainLedger.lock(TREASURY, refundAmount);
+    auc.pendingBidJobId = job.id;
+    this.scheduleSave();
+    return { ...auc, pending: true, job: mintQueue.publicJob(job) };
   }
 
-  tradeStock(ticker, action, shares, username = "danie") {
+  tradeStock(ticker, action, shares, username) {
     const stock = this.stocks.find(s => s.ticker === ticker);
     if (!stock) throw new Error("Stock ticker not found");
     if (shares <= 0) throw new Error("Invalid shares count");
@@ -882,34 +1011,42 @@ class GameStore {
     const brokerFee = +(totalCost * 0.015).toFixed(2);
     const tax = +(totalCost * 0.01).toFixed(2);
     const clean = String(username || '').toLowerCase();
+    const portfolio = this.userStocks[clean] || (this.userStocks[clean] = {});
 
     if (action === 'buy') {
       const needed = totalCost + brokerFee + tax;
-      if (chainLedger.getBalance(clean).available < needed) {
-        throw new Error(`Insufficient balance. Cost + fees: ${needed.toFixed(2)} NUM`);
-      }
-      chainLedger.localAdjust(clean, -needed, `Bought ${shares} shares of ${ticker} via Stock Broker`);
-      this.userStocks[ticker] = (this.userStocks[ticker] || 0) + shares;
-      this.globalTaxPool += tax;
+      const job = this._enqueueNumTransfer({
+        type: 'stock_buy',
+        from: clean,
+        to: TREASURY,
+        amount: needed,
+        description: `Buy ${shares} shares of ${ticker}`,
+        snapshot: { username: clean, ticker, shares, tax, brokerFee }
+      });
+      return { stock, ownedShares: portfolio[ticker] || 0, portfolio, pending: true, job: mintQueue.publicJob(job) };
     } else if (action === 'sell') {
-      const owned = this.userStocks[ticker] || 0;
-      if (owned < shares) throw new Error(`You only own ${owned} shares of ${ticker}`);
+      const owned = Number(portfolio[ticker]) || 0;
+      const pending = this._activeJobs('stock_sell', job =>
+        job.snapshot?.username === clean && job.snapshot?.ticker === ticker
+      ).reduce((sum, job) => sum + Number(job.snapshot?.shares || 0), 0);
+      if (owned - pending < shares) throw new Error(`You only own ${owned - pending} shares of ${ticker}`);
       const proceeds = +(totalCost - brokerFee - tax).toFixed(2);
-      this.userStocks[ticker] -= shares;
-      chainLedger.localAdjust(clean, proceeds, `Sold ${shares} shares of ${ticker} via Stock Broker`);
-      this.globalTaxPool += tax;
+      const job = this._enqueueNumTransfer({
+        type: 'stock_sell',
+        from: TREASURY,
+        to: clean,
+        amount: proceeds,
+        description: `Pay proceeds for ${shares} shares of ${ticker}`,
+        snapshot: { username: clean, ticker, shares, tax, brokerFee }
+      });
+      return { stock, ownedShares: portfolio[ticker] || 0, portfolio, pending: true, job: mintQueue.publicJob(job) };
+    } else {
+      throw new Error('Invalid stock trade action');
     }
-
-    return {
-      stock,
-      ownedShares: this.userStocks[ticker] || 0,
-      portfolio: this.userStocks,
-      walletBalance: chainLedger.getBalance(clean).available
-    };
   }
 
   /* ------------------------------------------------------------------ */
-  /* Mining rewards (batched into on-chain mints)                       */
+  /* Mining rewards (batched into on-chain treasury transfers)          */
   /* ------------------------------------------------------------------ */
 
   creditMiningReward(username, amount, reference = '') {
@@ -934,29 +1071,23 @@ class GameStore {
       if (mintQueue.jobs.some(j => j.type === 'mining' && j.username === username)) continue;
 
       const amount = +reward.amount.toFixed(4);
-      this.pendingMining.delete(username);
-      chainLedger.addPending(username, amount);
+      if (chainLedger.getBalance(TREASURY).available < amount) continue;
 
-      mintQueue.enqueue({
-        type: 'mining',
-        username,
-        assetId: NUM_ASSET_ID,
-        requiredConfirmations: REQUIRED_CONFIRMATIONS,
-        snapshot: { amount, shares: reward.shares },
-        meta: { name: 'Browser mining' },
-        steps: [{
-          key: 'mint_mining',
-          label: `Mint ${amount} NUM mining reward`,
-          operation: {
-            kind: 'mint',
-            assetId: NUM_ASSET_ID,
-            assetType: CURRENCY_ASSET_TYPE,
-            recipient: username,
-            amountUnits: toUnits(amount)
-          },
-          compensate: null
-        }]
-      });
+      try {
+        const job = this._enqueueNumTransfer({
+          type: 'mining',
+          from: TREASURY,
+          to: username,
+          amount,
+          description: `Pay ${amount} NUM browser mining reward`,
+          snapshot: { username, shares: reward.shares }
+        });
+        chainLedger.addPending(username, amount);
+        this.pendingMining.delete(username);
+        if (job) this.scheduleSave();
+      } catch (err) {
+        console.error(`[mining] Could not queue @${username} reward:`, err.message);
+      }
     }
   }
 
@@ -1017,35 +1148,8 @@ class GameStore {
     };
   }
 
-  creditExternal(username, amount, reference = 'External purchase') {
-    const clean = String(username || '').toLowerCase();
-    const value = +Number(amount || 0).toFixed(4);
-    if (!(value > 0)) throw new Error('Invalid credit amount');
-
-    chainLedger.addPending(clean, value);
-
-    const job = mintQueue.enqueue({
-      type: 'external',
-      username: clean,
-      assetId: NUM_ASSET_ID,
-      requiredConfirmations: REQUIRED_CONFIRMATIONS,
-      snapshot: { amount: value, reference },
-      meta: { name: reference },
-      steps: [{
-        key: 'mint_external',
-        label: `Mint ${value} NUM (${reference})`,
-        operation: {
-          kind: 'mint',
-          assetId: NUM_ASSET_ID,
-          assetType: CURRENCY_ASSET_TYPE,
-          recipient: clean,
-          amountUnits: toUnits(value)
-        },
-        compensate: null
-      }]
-    });
-
-    return { pending: true, amount: value, job: mintQueue.publicJob(job) };
+  creditExternal() {
+    throw new Error('NUM cannot be credited without verified payment settlement');
   }
 
   /* ------------------------------------------------------------------ */
@@ -1055,6 +1159,7 @@ class GameStore {
   _onJobConfirmed(job) {
     if (job.gameApplied) return;
     job.gameApplied = true;
+    this._recordRegistrations(job);
 
     const username = job.username;
     const found = key => job.steps.find(s => s.key === key && !s.compensation);
@@ -1068,6 +1173,13 @@ class GameStore {
         const amount = job.snapshot?.cost || 0;
 
         chainLedger.settleSpend(username, amount);
+        chainLedger.receiveChain(TREASURY, amount);
+        job.steps
+          .filter(step => step.operation?.kind === 'register_username' && step.status === 'confirmed')
+          .forEach(step => chainLedger.markUsernameRegistered(step.operation.username, {
+            key: step.operation.key,
+            jobId: job.id
+          }));
         if (payment) {
           chainLedger.recordChainMove({
             username,
@@ -1078,6 +1190,16 @@ class GameStore {
             jobId: job.id,
             plotId: plot.id,
             assetId: job.assetId
+          });
+          chainLedger.recordChainMove({
+            username: TREASURY,
+            amount,
+            description: `Deed payment received: ${plot.name}`,
+            txHash: payment.txHash,
+            height: payment.confirmedHeight,
+            jobId: job.id,
+            plotId: plot.id,
+            assetId: NUM_ASSET_ID
           });
         }
         if (mint) {
@@ -1108,20 +1230,36 @@ class GameStore {
           confirmedAt: new Date().toISOString()
         };
 
-        if (username === 'crown_treasury') {
-          this.globalTaxPool = +(this.globalTaxPool + amount).toFixed(4);
-        }
-
         this.scheduleSave();
         return;
       }
 
-      if (job.type === 'income' || job.type === 'town_hall' || job.type === 'bank_interest' || job.type === 'mining') {
+      if (['income', 'town_hall', 'bank_interest', 'mining'].includes(job.type)) {
         const amount = Number(job.snapshot?.amount) || 0;
-        chainLedger.settlePending(username, amount);
-        const mint = job.steps.find(s => s.key.startsWith('mint') && !s.compensation) || job.steps[0];
+        const from = job.snapshot?.from || TREASURY;
+        const to = job.snapshot?.to || job.snapshot?.username || username;
+        chainLedger.settleSpend(from, amount);
+        chainLedger.dropPending(to, amount);
+        chainLedger.receiveChain(to, amount);
+        const transfer = job.steps.find(s => s.key === 'transfer' && !s.compensation);
         chainLedger.recordChainMove({
-          username,
+          username: from,
+          amount: -amount,
+          description: job.type === 'income'
+            ? `Rental income paid: ${job.meta?.name || job.plotId || 'property'}`
+            : job.type === 'town_hall'
+              ? `Town Hall dividend paid: ${job.meta?.name || 'municipality'}`
+              : job.type === 'mining'
+                ? 'Browser mining reward paid'
+                : 'Bank interest paid',
+          txHash: transfer?.txHash,
+          height: transfer?.confirmedHeight,
+          jobId: job.id,
+          plotId: job.plotId,
+          assetId: job.assetId
+        });
+        chainLedger.recordChainMove({
+          username: to,
           amount,
           description: job.type === 'income'
             ? `Rental income: ${job.meta?.name || job.plotId || 'property'}`
@@ -1130,8 +1268,8 @@ class GameStore {
               : job.type === 'mining'
                 ? 'Browser mining reward'
                 : 'Bank staking yield',
-          txHash: mint?.txHash,
-          height: mint?.confirmedHeight,
+          txHash: transfer?.txHash,
+          height: transfer?.confirmedHeight,
           jobId: job.id,
           plotId: job.plotId,
           assetId: job.assetId
@@ -1144,6 +1282,14 @@ class GameStore {
             plot.building.stats.lastCollectedAt = new Date().toISOString();
           }
         }
+        if (job.type === 'town_hall' && job.plotId) {
+          const plot = this.getPlotById(job.plotId);
+          if (plot?.building?.stats) {
+            plot.building.stats.treasuryBalance = 0;
+            plot.building.stats.subsidiesDistributed =
+              (plot.building.stats.subsidiesDistributed || 0) + amount;
+          }
+        }
 
         this.scheduleSave();
         return;
@@ -1153,6 +1299,7 @@ class GameStore {
         const plot = this.getPlotById(job.plotId);
         const amount = Number(job.snapshot?.cost) || 0;
         chainLedger.settleSpend(username, amount);
+        chainLedger.receiveChain(TREASURY, amount);
         const payment = job.steps.find(s => s.key === 'payment');
         chainLedger.recordChainMove({
           username,
@@ -1193,18 +1340,78 @@ class GameStore {
         return;
       }
 
-      if (job.type === 'external') {
+      if (['bank_deposit', 'bank_withdraw', 'auction_bid', 'stock_buy', 'stock_sell', 'mint_issue'].includes(job.type)) {
         const amount = Number(job.snapshot?.amount) || 0;
-        chainLedger.settlePending(username, amount);
-        const step = job.steps[0];
+        const from = job.snapshot?.from;
+        const to = job.snapshot?.to;
+        chainLedger.settleSpend(from, amount);
+        chainLedger.receiveChain(to, amount);
+        const transfer = job.steps.find(s => s.key === 'transfer' && !s.compensation);
         chainLedger.recordChainMove({
-          username,
-          amount,
-          description: job.snapshot?.reference || 'External NUM purchase',
-          txHash: step?.txHash,
-          height: step?.confirmedHeight,
+          username: from,
+          amount: -amount,
+          description: job.meta?.name || `Sent to @${to}`,
+          txHash: transfer?.txHash,
+          height: transfer?.confirmedHeight,
           jobId: job.id
         });
+        chainLedger.recordChainMove({
+          username: to,
+          amount,
+          description: `Received from @${from}`,
+          txHash: transfer?.txHash,
+          height: transfer?.confirmedHeight,
+          jobId: job.id
+        });
+
+        if (job.type === 'bank_deposit' || job.type === 'bank_withdraw') {
+          const bank = this._userBank(job.snapshot?.username || from);
+          bank.depositedNum = Math.max(0, +(bank.depositedNum + (job.type === 'bank_deposit' ? amount : -amount)).toFixed(4));
+        } else if (job.type === 'auction_bid') {
+          const auc = this.auctions.find(item => item.id === job.snapshot?.auctionId);
+          const refundAmount = Number(job.snapshot?.refundAmount) || 0;
+          const previousBidder = job.snapshot?.previousBidder;
+          if (refundAmount > 0) {
+            chainLedger.settleSpend(TREASURY, refundAmount);
+            chainLedger.receiveChain(previousBidder, refundAmount);
+            const refund = job.steps.find(s => s.key === 'refund_previous_bid');
+            chainLedger.recordChainMove({
+              username: TREASURY,
+              amount: -refundAmount,
+              description: `Refund previous bid on auction #${auc?.id || job.snapshot?.auctionId}`,
+              txHash: refund?.txHash,
+              height: refund?.confirmedHeight,
+              jobId: job.id
+            });
+            chainLedger.recordChainMove({
+              username: previousBidder,
+              amount: refundAmount,
+              description: `Outbid refund for auction #${auc?.id || job.snapshot?.auctionId}`,
+              txHash: refund?.txHash,
+              height: refund?.confirmedHeight,
+              jobId: job.id
+            });
+          }
+          if (auc) {
+            auc.currentBid = Number(job.snapshot?.bidAmount) || 0;
+            auc.highestBidder = job.snapshot?.username;
+            auc.bidsCount += 1;
+            auc.pendingBidJobId = null;
+            auc.escrowOnChain = true;
+          }
+        } else if (job.type === 'stock_buy' || job.type === 'stock_sell') {
+          const portfolio = this.userStocks[job.snapshot?.username] || (this.userStocks[job.snapshot?.username] = {});
+          const delta = Number(job.snapshot?.shares) || 0;
+          portfolio[job.snapshot?.ticker] = Math.max(0, (Number(portfolio[job.snapshot?.ticker]) || 0) +
+            (job.type === 'stock_buy' ? delta : -delta));
+        } else if (job.type === 'mint_issue') {
+          const coin = job.snapshot?.coin;
+          if (coin) {
+            this.mintLedger.unshift(coin);
+            if (this.mintLedger.length > 500) this.mintLedger.pop();
+          }
+        }
+
         this.scheduleSave();
         return;
       }
@@ -1217,9 +1424,16 @@ class GameStore {
   _onJobReverted(job) {
     if (job.gameApplied) return;
     job.gameApplied = true;
+    this._recordRegistrations(job);
     const username = job.username;
+    const settlementUncertain = job.status === 'revert_failed';
 
     try {
+      if (settlementUncertain) {
+        console.error(`[ledger] Job ${job.id} has a failed on-chain compensation; reserved balances remain locked for reconciliation`);
+        return;
+      }
+
       if (job.type === 'claim') {
         const plot = this.getPlotById(job.plotId);
         const amount = Number(job.snapshot?.cost) || 0;
@@ -1259,7 +1473,8 @@ class GameStore {
 
       if (job.type === 'income') {
         const amount = Number(job.snapshot?.amount) || 0;
-        chainLedger.dropPending(username, amount);
+        chainLedger.unlock(TREASURY, amount);
+        chainLedger.dropPending(job.snapshot?.username || job.snapshot?.to || username, amount);
         const plot = this.getPlotById(job.plotId);
         if (plot?.building?.stats && job.snapshot) {
           plot.building.stats.accruedIncome = +Number(job.snapshot.accrued || 0).toFixed(6);
@@ -1299,7 +1514,8 @@ class GameStore {
 
       if (job.type === 'town_hall') {
         const amount = Number(job.snapshot?.amount) || 0;
-        chainLedger.dropPending(username, amount);
+        chainLedger.unlock(TREASURY, amount);
+        chainLedger.dropPending(job.snapshot?.username || job.snapshot?.to || username, amount);
         const plot = this.getPlotById(job.plotId);
         if (plot?.building?.stats) {
           plot.building.stats.treasuryBalance = +((plot.building.stats.treasuryBalance || 0) + amount).toFixed(2);
@@ -1310,17 +1526,21 @@ class GameStore {
 
       if (job.type === 'bank_interest') {
         const amount = Number(job.snapshot?.accruedBefore) || 0;
-        chainLedger.dropPending(username, Number(job.snapshot?.amount) || 0);
-        this.userBank.accruedInterest = +(this.userBank.accruedInterest + amount).toFixed(6);
+        chainLedger.unlock(TREASURY, Number(job.snapshot?.amount) || 0);
+        chainLedger.dropPending(job.snapshot?.username || job.snapshot?.to || username, Number(job.snapshot?.amount) || 0);
+        const bank = this._userBank(job.snapshot?.username || username);
+        bank.accruedInterest = +(bank.accruedInterest + amount).toFixed(6);
         return;
       }
 
       if (job.type === 'mining') {
         const amount = Number(job.snapshot?.amount) || 0;
-        chainLedger.dropPending(username, amount);
-        const current = this.pendingMining.get(username) || { amount: 0, shares: 0 };
+        const recipient = job.snapshot?.username || job.snapshot?.to || username;
+        chainLedger.unlock(TREASURY, amount);
+        chainLedger.dropPending(recipient, amount);
+        const current = this.pendingMining.get(recipient) || { amount: 0, shares: 0 };
         current.amount = round(current.amount + amount);
-        this.pendingMining.set(username, current);
+        this.pendingMining.set(recipient, current);
         return;
       }
 
@@ -1337,9 +1557,19 @@ class GameStore {
         return;
       }
 
-      if (job.type === 'external') {
-        const amount = Number(job.snapshot?.amount) || 0;
-        chainLedger.dropPending(username, amount);
+      if (['bank_deposit', 'bank_withdraw', 'stock_buy', 'stock_sell', 'mint_issue'].includes(job.type)) {
+        chainLedger.unlock(job.snapshot?.from, Number(job.snapshot?.amount) || 0);
+        this.scheduleSave();
+        return;
+      }
+
+      if (job.type === 'auction_bid') {
+        chainLedger.unlock(job.snapshot?.from, Number(job.snapshot?.amount) || 0);
+        if (Number(job.snapshot?.refundAmount) > 0) chainLedger.unlock(TREASURY, Number(job.snapshot.refundAmount));
+        const auc = this.auctions.find(item => item.id === job.snapshot?.auctionId);
+        if (auc) auc.pendingBidJobId = null;
+        this.scheduleSave();
+        return;
         return;
       }
     } finally {

@@ -45,6 +45,22 @@ function requireUser(req, res) {
   return username;
 }
 
+function requireSessionUser(req, res) {
+  const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+  const user = userManager.verifyToken(token);
+  if (!user) {
+    res.status(401).json({ error: 'Valid sign-in required' });
+    return null;
+  }
+
+  const requestedUsername = requestUser(req);
+  if (requestedUsername && requestedUsername !== user.username) {
+    res.status(403).json({ error: "Cannot access another account's receive address" });
+    return null;
+  }
+  return user.username;
+}
+
 /** Admin gate for raw node/wallet proxies and sensitive telemetry. */
 function requireAdmin(req, res) {
   const username = requestUser(req);
@@ -67,6 +83,23 @@ function walletView(username) {
     lockedBalance: balance.locked,
     totalBalance: balance.total
   };
+}
+
+const receiveAddressJobs = new Map();
+
+async function getOrCreateReceiveAddress(username) {
+  const user = userManager.getUser(username);
+  if (user.receiveAddress) return user.receiveAddress;
+
+  if (!receiveAddressJobs.has(username)) {
+    const job = numistaRpc
+      .createSubaddress(`Townforge @${username}`)
+      .then(receiveAddress => userManager.setReceiveAddress(username, receiveAddress))
+      .finally(() => receiveAddressJobs.delete(username));
+    receiveAddressJobs.set(username, job);
+  }
+
+  return receiveAddressJobs.get(username);
 }
 
 // ----------------------------------------------------
@@ -192,7 +225,6 @@ app.get('/api/plots', (req, res) => {
 
   res.json({
     plots: all.map(toPublicPlot),
-    globalTaxPool: gameStore.globalTaxPool,
     totalPlots: all.length,
     claimedPlots: all.filter(p => p.isClaimed).length,
     pendingPlots: all.filter(p => p.nftState?.stage === 'pending').length,
@@ -214,7 +246,7 @@ app.get('/api/plots/:id', (req, res) => {
 // Claim plot: registers the deed to a USERNAME and mints it on-chain.
 app.post('/api/plots/:id/claim', (req, res) => {
   try {
-    const username = requireUser(req, res);
+    const username = requireSessionUser(req, res);
     if (!username) return;
     const result = gameStore.claimPlot(req.params.id, username);
     res.json(result);
@@ -226,7 +258,7 @@ app.post('/api/plots/:id/claim', (req, res) => {
 // Town Hall: claim collected municipal taxes
 app.post('/api/plots/:id/town-hall/claim-taxes', (req, res) => {
   try {
-    const username = requireUser(req, res);
+    const username = requireSessionUser(req, res);
     if (!username) return;
     const result = gameStore.claimTownHallTaxes(req.params.id, username);
     res.json(result);
@@ -238,7 +270,7 @@ app.post('/api/plots/:id/town-hall/claim-taxes', (req, res) => {
 // Income properties: collect accrued rent / utility yield
 app.post('/api/plots/:id/collect-income', (req, res) => {
   try {
-    const username = requireUser(req, res);
+    const username = requireSessionUser(req, res);
     if (!username) return;
     const result = gameStore.collectPlotIncome(req.params.id, username);
     res.json(result);
@@ -250,7 +282,7 @@ app.post('/api/plots/:id/collect-income', (req, res) => {
 // Income properties: upgrade one level (max 5)
 app.post('/api/plots/:id/upgrade', (req, res) => {
   try {
-    const username = requireUser(req, res);
+    const username = requireSessionUser(req, res);
     if (!username) return;
     const result = gameStore.upgradePlot(req.params.id, username);
     res.json(result);
@@ -323,7 +355,7 @@ app.get('/api/assets/:assetId/balance/:username', async (req, res) => {
 app.post('/api/mint/issue', (req, res) => {
   try {
     const { metal, weightGrams, purity, mintPlotId } = req.body;
-    const username = requireUser(req, res);
+    const username = requireSessionUser(req, res);
     if (!username) return;
     if (!userManager.isAdmin(username)) {
       return res.status(403).json({ error: 'Only an administrator can strike coins' });
@@ -350,9 +382,10 @@ app.get('/api/mints', (req, res) => {
 // ----------------------------------------------------
 
 app.get('/api/bank', (req, res) => {
-  const username = req.query.username || 'danie';
+  const username = requireSessionUser(req, res);
+  if (!username) return;
   res.json({
-    userBank: gameStore.userBank,
+    userBank: gameStore.getBankInfo(username),
     baseApy: CONFIG.ECONOMY.BANK_BASE_APY,
     wallet: walletView(username)
   });
@@ -361,7 +394,7 @@ app.get('/api/bank', (req, res) => {
 app.post('/api/bank/deposit', (req, res) => {
   try {
     const { amount } = req.body;
-    const username = requireUser(req, res);
+    const username = requireSessionUser(req, res);
     if (!username) return;
     const bank = gameStore.bankDeposit(Number(amount), username);
     res.json({ success: true, bank, wallet: walletView(username) });
@@ -373,7 +406,7 @@ app.post('/api/bank/deposit', (req, res) => {
 app.post('/api/bank/withdraw', (req, res) => {
   try {
     const { amount } = req.body;
-    const username = requireUser(req, res);
+    const username = requireSessionUser(req, res);
     if (!username) return;
     const bank = gameStore.bankWithdraw(Number(amount), username);
     res.json({ success: true, bank, wallet: walletView(username) });
@@ -384,7 +417,7 @@ app.post('/api/bank/withdraw', (req, res) => {
 
 app.post('/api/bank/claim-interest', (req, res) => {
   try {
-    const username = requireUser(req, res);
+    const username = requireSessionUser(req, res);
     if (!username) return;
     const result = gameStore.bankClaimInterest(username);
     res.json({ success: true, ...result, wallet: walletView(username) });
@@ -410,7 +443,7 @@ app.get('/api/auctions', (req, res) => {
 app.post('/api/auctions/:id/bid', (req, res) => {
   try {
     const { amount } = req.body;
-    const username = requireUser(req, res);
+    const username = requireSessionUser(req, res);
     if (!username) return;
     const auction = gameStore.placeBid(req.params.id, Number(amount), username);
     res.json({ success: true, auction, wallet: walletView(username) });
@@ -424,10 +457,11 @@ app.post('/api/auctions/:id/bid', (req, res) => {
 // ----------------------------------------------------
 
 app.get('/api/stocks', (req, res) => {
-  const username = req.query.username || 'danie';
+  const username = requireSessionUser(req, res);
+  if (!username) return;
   res.json({
     stocks: gameStore.stocks,
-    portfolio: gameStore.userStocks,
+    portfolio: gameStore.userStocks[username] || {},
     wallet: walletView(username)
   });
 });
@@ -435,7 +469,7 @@ app.get('/api/stocks', (req, res) => {
 app.post('/api/stocks/trade', (req, res) => {
   try {
     const { ticker, action, shares } = req.body;
-    const username = requireUser(req, res);
+    const username = requireSessionUser(req, res);
     if (!username) return;
     const result = gameStore.tradeStock(ticker, action, Number(shares), username);
     res.json({ success: true, ...result });
@@ -490,36 +524,11 @@ app.post('/api/onramp/quote', (req, res) => {
 });
 
 app.post('/api/onramp/order', (req, res) => {
-  const username = requireUser(req, res);
-  if (!username) return;
-  try {
-    const { currency, amount, paymentMethod } = req.body;
-    const order = cryptoOnramp.createOrder({ currency, amount, paymentMethod, username });
-    res.json(order);
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
+  res.status(503).json({ error: 'NUM purchases are unavailable until a verified payment provider is configured' });
 });
 
 app.post('/api/onramp/complete', (req, res) => {
-  try {
-    const { orderId } = req.body;
-    const username = requireUser(req, res);
-    if (!username) return;
-    const order = cryptoOnramp.completeOrder(orderId, username);
-    const credit = gameStore.creditExternal(
-      username,
-      order.numAmount,
-      `Fiat purchase ${order.orderId}`
-    );
-    res.json({ order, credit });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-app.get('/api/onramp/orders', (req, res) => {
-  res.json({ orders: cryptoOnramp.getOrders() });
+  res.status(503).json({ error: 'NUM cannot be credited without verified payment settlement' });
 });
 
 // ----------------------------------------------------
@@ -770,6 +779,22 @@ app.get('/api/wallet', async (req, res) => {
   res.status(404).json({ error: 'User not found' });
 });
 
+app.get('/api/wallet/receive', async (req, res) => {
+  const username = requireSessionUser(req, res);
+  if (!username) return;
+
+  try {
+    const receiveAddress = await getOrCreateReceiveAddress(username);
+    const receiveInfo = await numistaRpc.getSubaddressReceiveInfo(
+      receiveAddress.accountIndex,
+      receiveAddress.addressIndex
+    );
+    res.json({ ...receiveAddress, ...receiveInfo });
+  } catch (err) {
+    res.status(503).json({ error: `Receive address unavailable: ${err.message}` });
+  }
+});
+
 // Username-to-username transfer, settled on chain.
 app.post('/api/wallet/transfer', (req, res) => {
   try {
@@ -796,6 +821,12 @@ app.post('/api/network/set-node', (req, res) => {
 app.get('/api/network', async (req, res) => {
   const net = await numistaRpc.getNetworkInfo();
   const capabilities = await chainAdapter.capabilities();
+  let crownEstateFund = { available: false };
+  try {
+    crownEstateFund = { available: true, ...(await numistaRpc.getCrownEstateFundBalance()) };
+  } catch (err) {
+    crownEstateFund.error = err.message;
+  }
   // The simulated chain still has a height and is usable, so surface it even
   // when no daemon is reachable.
   if (!net.height && capabilities.chainHeight) {
@@ -805,10 +836,12 @@ app.get('/api/network', async (req, res) => {
   }
   res.json({
     network: net,
+    crownEstateFund,
     chain: capabilities,
     config: {
       ticker: CONFIG.NUMISTA.TICKER,
       name: CONFIG.NUMISTA.NAME,
+      crownEstateBlockReward: CONFIG.NUMISTA.GAME_FUND_BLOCK_REWARD_NUM,
       claimPrice: CONFIG.ECONOMY.PLOT_CLAIM_PRICE_NUM,
       taxRate: CONFIG.ECONOMY.TAX_RATE_TOWN_HALL,
       confirmationsRequired: CONFIG.CHAIN.CONFIRMATIONS

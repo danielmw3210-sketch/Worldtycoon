@@ -129,11 +129,13 @@ aliases are shown in parentheses.
 | `prune_blockchain` | Prune the local blockchain |
 | `flush_cache` | Flush daemon caches |
 
-## Wallet JSON-RPC methods
+## Numista wallet JSON-RPC methods
 
 Wallet RPC uses JSON-RPC at `POST /json_rpc` on the operator-selected wallet
 RPC port. It requires a running wallet and talks to the configured daemon.
-These methods are implemented by this codebase:
+These methods are provided by the Numista wallet-RPC binary. This game
+backend calls a subset through its `server/numista` adapter; the list below is
+the wallet build's RPC surface, not a list of game HTTP routes:
 
 ```text
 get_wallet_info, get_balance, get_address, get_address_index,
@@ -162,9 +164,11 @@ estimate_tx_size_and_weight, get_default_fee_priority, get_version,
 setup_background_sync, start_background_sync, stop_background_sync
 ```
 
-These are general wallet-management and coin-transfer APIs; request fields
-and response formats are defined in
-[`src/wallet/wallet_rpc_server_commands_defs.h`](src/wallet/wallet_rpc_server_commands_defs.h).
+These are general wallet-management and coin-transfer APIs. Request fields and
+response formats must match the Numista wallet-RPC build deployed with the
+daemon. The blockchain source tree is maintained separately from this game
+repository, so its `src/wallet/wallet_rpc_server_commands_defs.h` path is not a
+local game source file.
 Protect wallet RPC credentials and wallet secrets. Use restricted mode when
 the application does not need wallet administration or spending operations.
 
@@ -211,8 +215,11 @@ fee. Amount and supply are integer asset quantities.
 creation operation. `metadata_hash` is a 32-byte hash of metadata stored
 elsewhere; do not put private or mutable game data in transaction extra.
 Collectibles must have a cap of one and mint/transfer quantity of one.
-Usernames are case-sensitive and limited to ASCII letters, digits, `_`, `-`,
-and `.`.
+The chain's username rules are defined by the Numista node. This game
+canonicalizes game account names to lowercase before it registers or queries
+them, and game account validation allows 3–32 characters from ASCII letters,
+digits, `_`, `-`, and `.`. Keep that normalization consistent in any external
+integration; do not register mixed-case aliases for the same game account.
 
 Example wallet JSON-RPC call (the authenticated wallet endpoint must remain
 private to the game backend):
@@ -235,9 +242,10 @@ private to the game backend):
 }
 ```
 
-`register_username`, `create_asset`, and `mint` can only be signed by the
-software wallet whose spend public key matches the configured Numista testnet
-issuer key. Keep that issuer wallet's private key offline or in a protected
+In this game's integration, `register_username`, `create_asset`, and `mint`
+are submitted through the configured issuer wallet. These operations can only
+be signed by the software wallet whose spend public key matches the configured
+Numista testnet issuer key. Keep that issuer wallet's private key offline or in a protected
 signing service; never put it in the game client, backend configuration, or
 repository. A `transfer` is signed only if the loaded software wallet's spend
 key matches the username's currently registered key, verified through the
@@ -264,6 +272,42 @@ fund public keys, but Numista production is not configured and has no active
 consensus reward or production address yet.
 
 ### Game backend and browser mining
+
+#### This application's integration contract
+
+The browser talks to the game HTTP API on port `3001`; it must not call node
+or wallet RPC directly. The API then uses the daemon at
+`NUMISTA_DAEMON_RPC` (default `http://127.0.0.1:48081`) and wallet RPC at
+`NUMISTA_WALLET_RPC` (default `http://127.0.0.1:48083`). Set
+`NUMISTA_RPC_USER` and `NUMISTA_RPC_PASS` when wallet RPC uses explicit
+credentials. The bridge can also read the wallet RPC `.login` file described
+above. Set `NUMISTA_CHAIN_MODE=live` only with the upgraded Numista node and
+wallet that support the asset RPC methods; `auto` selects live only when the
+required methods and services are available, `simulate` uses the local test
+chain, and `off` disables chain operations.
+
+| Game API | Blockchain behavior |
+| --- | --- |
+| `POST /api/auth/register` | Creates a local game identity. It does not create a wallet file or immediately register a chain username. |
+| `POST /api/auth/login` | Issues the game's bearer token. |
+| `GET /api/wallet/receive` | Requires a valid bearer token; lazily creates and persists a wallet-RPC subaddress for native coin deposits. |
+| `GET /api/wallet` | Reads NUM asset balance from the chain ledger adapter; this is not the native coin balance. |
+| `POST /api/wallet/transfer` | Queues an in-game NUM asset transfer. It registers missing lowercase usernames first and tracks transaction confirmation. |
+| `GET /api/network/capabilities` | Reports the active chain mode, asset RPC readiness, NUM asset ID, unit scale, and required confirmations. |
+| `/api/wallet-rpc/*` and admin-only `/api/network/*` | Administrative diagnostics/proxies; the admin gate currently trusts the supplied username rather than verifying a bearer token. Keep these routes on a trusted private backend. |
+
+NUM asset quantities use `1000` integer asset units per displayed NUM in this
+application. Native coin RPC quantities use `10^12` atomic units per coin.
+They are separate assets and scales. The game derives a default NUM asset ID
+from its application/schema version unless `NUMISTA_CURRENCY_ASSET_ID` is
+configured. Set the same explicit ID in all environments that must refer to
+the same on-chain currency; changing it creates a different asset identity.
+
+Most game routes currently identify the caller using a username in the request
+or `X-Numista-User`; only the receive-address route verifies a bearer session
+and enforces ownership. The admin gate also trusts the supplied username.
+Treat the game API as a trusted development backend unless the other routes
+are placed behind an authenticated service layer.
 
 The game backend is the trust boundary between the executable/browser and a
 private node/wallet service:
@@ -303,8 +347,10 @@ not a replacement for HTTP RPC: messages can be dropped, so reconcile chain
 state with daemon RPC after reconnects and reorganizations. See
 [`docs/ZMQ.md`](docs/ZMQ.md) for topic and payload behavior.
 
-For the authoritative list of daemon routes and method names, see
-[`src/rpc/core_rpc_server.h`](src/rpc/core_rpc_server.h); wallet method
-registrations are in
-[`src/wallet/wallet_rpc_server.h`](src/wallet/wallet_rpc_server.h). Network
-ports are defined in [`src/cryptonote_config.h`](src/cryptonote_config.h).
+For the authoritative list of daemon routes and method names, consult the
+source tree and release notes for the exact Numista node and wallet binaries
+you deploy. This repository contains the game adapter, not the blockchain
+daemon source. Verify that the deployed fork includes the three Numista asset
+daemon methods and `numista_asset_operation` wallet method documented above;
+standard Monero RPC compatibility alone is not sufficient for live asset
+operations.

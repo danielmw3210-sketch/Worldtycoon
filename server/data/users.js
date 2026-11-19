@@ -38,17 +38,25 @@ class UserManager {
     try {
       if (!fs.existsSync(USERS_FILE)) return;
       const raw = JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
+      let repaired = false;
       (raw.users || []).forEach(user => {
         if (!user?.username) return;
+        if (!user.wallet || typeof user.wallet !== 'object' || !Array.isArray(user.wallet.transfers)) repaired = true;
+        if (typeof user.receiveAddress === 'string') repaired = true;
         this.users.set(user.username.toLowerCase(), {
           username: user.username.toLowerCase(),
           password: user.password || 'password123',
           role: user.role === 'admin' ? 'admin' : 'user',
           createdAt: user.createdAt || new Date().toISOString(),
-          wallet: user.wallet || this._emptyWallet(),
-          receiveAddress: user.receiveAddress || null
+          // Older account files may contain `wallet: null`; always repair the
+          // record in memory so subsequent saves persist a usable wallet shape.
+          wallet: user.wallet && typeof user.wallet === 'object'
+            ? { ...this._emptyWallet(), ...user.wallet, transfers: Array.isArray(user.wallet.transfers) ? user.wallet.transfers : [] }
+            : this._emptyWallet(),
+          receiveAddress: this._normalizeReceiveAddress(user.receiveAddress)
         });
       });
+      if (repaired) this.save();
     } catch (err) {
       console.warn('[users] Could not load accounts:', err.message);
     }
@@ -61,6 +69,19 @@ class UserManager {
       pendingBalance: 0,
       lockedBalance: 0,
       transfers: []
+    };
+  }
+
+  _normalizeReceiveAddress(value) {
+    if (typeof value === 'string' && value.trim()) {
+      // Legacy files stored only the address. Retain it as the primary address.
+      return { address: value.trim(), accountIndex: 0, addressIndex: 0 };
+    }
+    if (!value || typeof value !== 'object' || !value.address) return null;
+    return {
+      address: String(value.address),
+      accountIndex: Number.isInteger(value.accountIndex) ? value.accountIndex : 0,
+      addressIndex: Number.isInteger(value.addressIndex) ? value.addressIndex : 0
     };
   }
 
@@ -188,7 +209,10 @@ class UserManager {
     const user = this.getUser(username);
     if (!user) throw new Error('User not found');
     if (!user.receiveAddress) {
-      user.receiveAddress = receiveAddress;
+      user.receiveAddress = typeof receiveAddress === 'string'
+        ? { address: receiveAddress, accountIndex: 0, addressIndex: 0 }
+        : this._normalizeReceiveAddress(receiveAddress);
+      if (!user.receiveAddress) throw new Error('A valid receive address is required');
       this.save();
     }
     return user.receiveAddress;

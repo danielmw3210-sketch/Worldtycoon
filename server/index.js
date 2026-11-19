@@ -102,12 +102,7 @@ async function getOrCreateReceiveAddress(username) {
     const job = numistaRpc
       .createSubaddress(`Townforge @${username}`)
       .then(result => {
-        console.log('Created address:', result);
-
-        return userManager.setReceiveAddress(
-          username,
-          result.address
-        );
+        return userManager.setReceiveAddress(username, result);
       })
       .catch(err => {
         console.error('Address creation failed:', err);
@@ -721,6 +716,16 @@ app.get('/api/wallet-rpc/accounts', async (req, res) => {
   if (!requireAdmin(req, res)) return;
   try { res.json(await numistaRpc.getWalletAccounts()); }
   catch (err) { res.status(400).json({ error: err.message, online: false }); }
+});
+
+app.post('/api/wallet-rpc/accounts', async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const label = String(req.body?.label || '').trim();
+    res.status(201).json(await numistaRpc.createAccount(label));
+  } catch (err) {
+    res.status(400).json({ error: err.message, online: false });
+  }
 });
 
 app.get('/api/wallet-rpc/address', async (req, res) => {

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useGame } from '../context/GameContext';
 import {
   ShieldCheck,
+  CreditCard,
   ArrowDownLeft,
   ArrowUpRight,
   Send,
@@ -124,11 +125,20 @@ export default function WalletStatus() {
                     {locked > 0 && <span className="text-slate-400">{locked.toFixed(4)} locked</span>}
                   </div>
                 </div>
-                <div className="text-right">
-                  <span className="text-xs text-slate-400 block font-mono">Chain Height</span>
-                  <span className="text-sm font-bold text-white font-mono mt-1 block">
-                    #{network?.height || 0}
-                  </span>
+                <div className="flex flex-col items-end gap-2">
+                  <div className="text-right">
+                    <span className="text-xs text-slate-400 block font-mono">Chain Height</span>
+                    <span className="text-sm font-bold text-white font-mono mt-1 block">
+                      #{network?.height || 0}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => setActiveModal('buy_crypto')}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold transition-colors"
+                  >
+                    <CreditCard className="w-3.5 h-3.5" />
+                    Deposit NUM
+                  </button>
                 </div>
               </div>
 

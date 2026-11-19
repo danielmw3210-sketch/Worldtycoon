@@ -490,9 +490,15 @@ app.post('/api/onramp/quote', (req, res) => {
 });
 
 app.post('/api/onramp/order', (req, res) => {
-  const { currency, amount, paymentMethod, username } = req.body;
-  const order = cryptoOnramp.createOrder({ currency, amount, paymentMethod, username });
-  res.json(order);
+  const username = requireUser(req, res);
+  if (!username) return;
+  try {
+    const { currency, amount, paymentMethod } = req.body;
+    const order = cryptoOnramp.createOrder({ currency, amount, paymentMethod, username });
+    res.json(order);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 app.post('/api/onramp/complete', (req, res) => {
@@ -500,7 +506,7 @@ app.post('/api/onramp/complete', (req, res) => {
     const { orderId } = req.body;
     const username = requireUser(req, res);
     if (!username) return;
-    const order = cryptoOnramp.completeOrder(orderId);
+    const order = cryptoOnramp.completeOrder(orderId, username);
     const credit = gameStore.creditExternal(
       username,
       order.numAmount,

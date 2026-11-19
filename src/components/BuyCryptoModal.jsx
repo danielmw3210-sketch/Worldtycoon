@@ -58,7 +58,7 @@ export default function BuyCryptoModal() {
           currency,
           amount: parseFloat(payAmount),
           paymentMethod: ['GBP', 'EUR', 'USD'].includes(currency) ? 'card' : 'crypto_swap',
-          recipientUsername: user?.username
+          username: user?.username
         })
       });
       const data = await res.json();
@@ -80,7 +80,7 @@ export default function BuyCryptoModal() {
       const res = await fetch('/api/onramp/complete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderId: order.orderId })
+        body: JSON.stringify({ orderId: order.orderId, username: user?.username })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);

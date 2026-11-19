@@ -63,9 +63,10 @@ class CryptoOnrampManager {
     return order;
   }
 
-  completeOrder(orderId) {
+  completeOrder(orderId, username) {
     const order = this.orders.find(o => o.orderId === orderId);
     if (!order) throw new Error('Order not found');
+    if (order.username !== username) throw new Error('Order does not belong to this account');
     if (order.status === 'completed') throw new Error('Order already completed');
 
     order.status = 'completed';

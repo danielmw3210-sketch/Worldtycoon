@@ -90,11 +90,11 @@ export default function Navbar() {
 
           {/* Buy Crypto Button */}
           <button
-            onClick={() => setActiveModal('buy_crypto')}
+            onClick={() => setActiveModal(user ? 'buy_crypto' : 'auth')}
             className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg font-semibold text-xs sm:text-sm bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-md shadow-emerald-700/20 border border-emerald-400/30 transition-all transform active:scale-95"
           >
             <CreditCard className="w-4 h-4" />
-            <span>Buy NUM</span>
+            <span>Deposit NUM</span>
           </button>
 
           {/* Bank Vault Shortcut */}
@@ -147,7 +147,7 @@ export default function Navbar() {
                 title="Click to view private wallet & transfer funds"
               >
                 <div className="text-xs text-orange-400 font-mono flex items-center justify-end space-x-1 font-bold">
-                  <span>@{user.username}</span>
+                  <span>Wallet · @{user.username}</span>
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
                 </div>
                 <div className="text-sm font-bold font-mono text-white flex items-center space-x-1">

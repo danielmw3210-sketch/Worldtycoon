@@ -31,14 +31,14 @@ export const CONFIG = {
    * On-chain deed / currency layer.
    *
    * MODE:
-   *   auto     – use the live Numista node when it exposes the asset RPC and a
-   *              signing wallet; otherwise fall back to the local simulated chain.
-   *   live     – require the real node (fail loudly if unavailable).
-   *   simulate – deterministic local chain used until the upgraded build lands.
+   *   auto     – use the live Numista node when it exposes the asset RPC and
+   *              signing wallet; otherwise remain off.
+   *   live     – require the real node (remain off if unavailable).
+   *   simulate – deterministic local chain used only for development/testing.
    *   off      – disable minting entirely.
    */
   CHAIN: {
-    MODE: (process.env.NUMISTA_CHAIN_MODE || "auto").toLowerCase(),
+    MODE: (process.env.NUMISTA_CHAIN_MODE || "live").toLowerCase(),
     CONFIRMATIONS: Number(process.env.NUMISTA_CONFIRMATIONS || 10),
     POLL_MS: Number(process.env.NUMISTA_QUEUE_POLL_MS || 3000),
     TX_TIMEOUT_MS: Number(process.env.NUMISTA_TX_TIMEOUT_MS || 45 * 60 * 1000),

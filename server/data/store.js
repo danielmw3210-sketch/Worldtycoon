@@ -436,6 +436,26 @@ class GameStore {
           }
         },
         {
+          key: 'register_player',
+          label: `Register @${cleanUsername} on-chain`,
+          operation: {
+            kind: 'register_username',
+            username: cleanUsername,
+            key: CONFIG.CHAIN.ISSUER_PUBLIC_KEY
+          },
+          compensate: null
+        },
+        {
+          key: 'register_treasury',
+          label: `Register @${TREASURY} on-chain`,
+          operation: {
+            kind: 'register_username',
+            username: TREASURY,
+            key: CONFIG.CHAIN.ISSUER_PUBLIC_KEY
+          },
+          compensate: null
+        },
+        {
           key: 'create',
           label: 'Create deed asset (collectible, cap 1)',
           operation: {

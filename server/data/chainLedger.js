@@ -297,10 +297,10 @@ class ChainLedger {
    * balances are read from the node instead.
    */
   async bootstrap() {
-    if (this.state.bootstrapped || !this.adapter) return;
+    if (!this.adapter) return;
     const caps = await this.adapter.capabilities();
 
-    if (caps.mode === 'simulate') {
+    if (!this.state.bootstrapped && caps.mode === 'simulate') {
       for (const username of Object.keys(CONFIG.SIM.GENESIS_BALANCES)) {
         const units = await this.adapter.getAssetBalance(NUM_ASSET_ID, username);
         const rec = this.ensure(username);
@@ -308,6 +308,10 @@ class ChainLedger {
         rec.chainSettled = round(onChain - rec.locked);
         this.syncWallet(username);
       }
+    }
+
+    if (caps.mode === 'live') {
+      await this.reconcile();
     }
 
     this.state.bootstrapped = true;

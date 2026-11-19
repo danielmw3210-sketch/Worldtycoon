@@ -289,6 +289,33 @@ app.get('/api/deeds/:assetId/metadata', (req, res) => {
   res.json(payload);
 });
 
+// Read-only on-chain asset endpoints. Values always come from the daemon in live mode.
+app.get('/api/assets/:assetId', async (req, res) => {
+  try {
+    const asset = await chainAdapter.getAsset(req.params.assetId);
+    if (!asset) return res.status(404).json({ error: 'Asset not found' });
+    res.json({ asset });
+  } catch (err) {
+    res.status(503).json({ error: err.message });
+  }
+});
+
+app.get('/api/assets/:assetId/balance/:username', async (req, res) => {
+  const username = String(req.params.username || '').trim();
+  if (!username) return res.status(400).json({ error: 'Username is required' });
+  try {
+    const units = await chainAdapter.getAssetBalance(req.params.assetId, username);
+    res.json({
+      assetId: req.params.assetId,
+      username,
+      balanceUnits: units,
+      balance: units / CONFIG.CHAIN.UNITS_PER_NUM
+    });
+  } catch (err) {
+    res.status(503).json({ error: err.message });
+  }
+});
+
 // ----------------------------------------------------
 // COIN MINTS (admin only)
 // ----------------------------------------------------

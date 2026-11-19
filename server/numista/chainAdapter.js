@@ -15,7 +15,7 @@
  * mode is active.
  *
  * Modes (CONFIG.CHAIN.MODE):
- *   auto     – live if the node + wallet support asset operations, else simulate
+ *   auto     – live if the node + wallet support asset operations, otherwise off
  *   live     – require the real node
  *   simulate – always use the local chain
  *   off      – minting disabled
@@ -393,15 +393,13 @@ class ChainAdapter {
       return this.capabilitiesSnapshot();
     }
 
-    if (requested === 'live') {
+    if (requested === 'live' || requested === 'auto') {
       this.mode = 'off';
       this.reason = `Live mode requested but not ready: ${probe.reason}`;
       return this.capabilitiesSnapshot();
     }
-
-    this._startSim(
-      `Live node not ready (${probe.reason}); using the simulated chain until the upgraded Numista build is connected`
-    );
+    this.mode = 'off';
+    this.reason = `Unknown chain mode "${requested}"`;
     return this.capabilitiesSnapshot();
   }
 
@@ -436,6 +434,14 @@ class ChainAdapter {
       out.daemonOnline = true;
       out.height = info.height || 0;
       out.nettype = info.nettype || null;
+      if (out.nettype && !/numista/i.test(out.nettype)) {
+        out.reason = `daemon is on "${out.nettype}", not Numista testnet`;
+        return out;
+      }
+      if (info.synchronized === false) {
+        out.reason = 'Numista daemon is not synchronized';
+        return out;
+      }
     } catch (err) {
       out.reason = `daemon unreachable at ${CONFIG.NUMISTA.DAEMON_RPC_URL}`;
       return out;
@@ -515,13 +521,17 @@ class ChainAdapter {
     if (this.mode === 'simulate') return this.sim.getTxStatus(txHash);
     if (this.mode !== 'live') return { status: 'pending', confirmations: 0 };
 
+    if (!/^[a-f0-9]{64}$/i.test(String(txHash || ''))) {
+      return { status: 'failed', confirmations: 0, error: 'Invalid transaction hash' };
+    }
+
     try {
       const res = await this._daemonRaw('get_transactions', {
         txs_hashes: [txHash],
         decode_as_json: false
       });
       const tx = (res.txs || [])[0];
-      if (tx && tx.block_height) {
+      if (tx && Number(tx.block_height) > 0 && tx.block_height !== 0) {
         const height = await this.getHeight();
         const confirmations = Math.max(1, height - tx.block_height + 1);
         return { status: 'confirmed', confirmations, includedHeight: tx.block_height };
@@ -547,7 +557,7 @@ class ChainAdapter {
   async mineSimBlocks(n = 1) {
     await this.init();
     if (this.mode !== 'simulate' || !this.sim) {
-      throw new Error('mineaSimBlocks is only available on the simulated chain');
+      throw new Error('mineSimBlocks is only available on the simulated chain');
     }
     return this.sim.mine(n);
   }
@@ -647,10 +657,15 @@ class ChainAdapter {
     }
 
     const result = await this._walletJsonRpc('numista_asset_operation', params);
+    const txHash = String(result.tx_hash || result.txid || '').trim();
+    if (!/^[a-f0-9]{64}$/i.test(txHash)) {
+      throw new Error('Wallet RPC returned no valid transaction hash');
+    }
     return {
-      txHash: result.tx_hash || result.txid,
+      txHash: txHash.toLowerCase(),
       fee: result.fee,
-      raw: result
+      raw: result,
+      acceptedAtHeight: await this.getHeight()
     };
   }
 

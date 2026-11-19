@@ -1,5 +1,5 @@
 {
-  "savedAt": "2026-11-19T17:44:44.894Z",
+  "savedAt": "2026-11-19T22:53:40.549Z",
   "users": [
     {
       "username": "danie",
@@ -12,7 +12,8 @@
         "pendingBalance": 0,
         "lockedBalance": 0,
         "transfers": []
-      }
+      },
+      "receiveAddress": null
     },
     {
       "username": "mercantile",
@@ -25,12 +26,13 @@
         "pendingBalance": 0,
         "lockedBalance": 0,
         "transfers": []
-      }
+      },
+      "receiveAddress": null
     },
     {
       "username": "crown_treasury",
       "password": "c66d7a60b22518be4c5e9ddbf437400f545a",
-      "role": "institution",
+      "role": "user",
       "createdAt": "2026-11-19T17:44:44.884Z",
       "wallet": {
         "balance": 0,
@@ -38,7 +40,92 @@
         "pendingBalance": 0,
         "lockedBalance": 0,
         "transfers": []
-      }
+      },
+      "receiveAddress": null
+    },
+    {
+      "username": "d4kking",
+      "password": "poop",
+      "role": "user",
+      "createdAt": "2026-11-19T21:27:55.709Z",
+      "wallet": {
+        "balance": 0,
+        "unlockedBalance": 0,
+        "pendingBalance": 0,
+        "lockedBalance": 0,
+        "transfers": []
+      },
+      "receiveAddress": null
+    },
+    {
+      "username": "d4kkingg",
+      "password": "poop",
+      "role": "user",
+      "createdAt": "2026-11-19T21:58:41.330Z",
+      "wallet": {
+        "balance": 0,
+        "unlockedBalance": 0,
+        "pendingBalance": 0,
+        "lockedBalance": 0,
+        "transfers": []
+      },
+      "receiveAddress": null
+    },
+    {
+      "username": "d4kk",
+      "password": "poop",
+      "role": "user",
+      "createdAt": "2026-11-19T22:35:22.411Z",
+      "wallet": {
+        "balance": 0,
+        "unlockedBalance": 0,
+        "pendingBalance": 0,
+        "lockedBalance": 0,
+        "transfers": []
+      },
+      "receiveAddress": null
+    },
+    {
+      "username": "d4kkkk",
+      "password": "poop",
+      "role": "user",
+      "createdAt": "2026-11-19T22:41:53.122Z",
+      "wallet": {
+        "balance": 0,
+        "unlockedBalance": 0,
+        "pendingBalance": 0,
+        "lockedBalance": 0,
+        "transfers": []
+      },
+      "receiveAddress": null
+    },
+    {
+      "username": "d4kkkkk",
+      "password": "poop",
+      "role": "user",
+      "createdAt": "2026-11-19T22:48:24.344Z",
+      "wallet": {
+        "balance": 0,
+        "unlockedBalance": 0,
+        "pendingBalance": 0,
+        "lockedBalance": 0,
+        "transfers": []
+      },
+      "receiveAddress": null
+    },
+    {
+      "username": "d4kkkkkk",
+      "password": "poop",
+      "role": "user",
+      "createdAt": "2026-11-19T22:53:40.549Z",
+      "wallet": {
+        "balance": 0,
+        "unlockedBalance": 0,
+        "pendingBalance": 0,
+        "lockedBalance": 0,
+        "transfers": []
+      },
+      "receiveAddress": null
     }
   ]
 }

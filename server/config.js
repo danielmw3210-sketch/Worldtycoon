@@ -54,8 +54,8 @@ export const CONFIG = {
     // 1 trillion NUM expressed in asset units (1e15, below 2^53).
     MAX_SUPPLY_UNITS: 1_000_000_000_000 * 1000,
     CURRENCY_ASSET_ID: process.env.NUMISTA_CURRENCY_ASSET_ID || "",
-    ISSUER_PUBLIC_KEY: process.env.NUMISTA_ISSUER_PUBLIC_KEY || "",
-    ISSUER_WALLET_FILE: process.env.NUMISTA_ISSUER_WALLET || "townforge_issuer",
+    ISSUER_PUBLIC_KEY: process.env.NUMISTA_ISSUER_PUBLIC_KEY || "3f50a0c86240ef57be837c5c3e6ca4f669db3b13e7954700337b0613bdd08b04",
+    ISSUER_WALLET_FILE: process.env.NUMISTA_ISSUER_WALLET || "admin",
     TREASURY_USERNAME: process.env.NUMISTA_TREASURY_USER || "crown_treasury"
   },
 

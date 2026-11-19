@@ -89,19 +89,39 @@ const receiveAddressJobs = new Map();
 
 async function getOrCreateReceiveAddress(username) {
   const user = userManager.getUser(username);
-  if (user.receiveAddress) return user.receiveAddress;
+
+  if (!user) {
+    throw new Error(`User not found: ${username}`);
+  }
+
+  if (user.receiveAddress) {
+    return user.receiveAddress;
+  }
 
   if (!receiveAddressJobs.has(username)) {
     const job = numistaRpc
       .createSubaddress(`Townforge @${username}`)
-      .then(receiveAddress => userManager.setReceiveAddress(username, receiveAddress))
-      .finally(() => receiveAddressJobs.delete(username));
+      .then(result => {
+        console.log('Created address:', result);
+
+        return userManager.setReceiveAddress(
+          username,
+          result.address
+        );
+      })
+      .catch(err => {
+        console.error('Address creation failed:', err);
+        throw err;
+      })
+      .finally(() => {
+        receiveAddressJobs.delete(username);
+      });
+
     receiveAddressJobs.set(username, job);
   }
 
   return receiveAddressJobs.get(username);
 }
-
 // ----------------------------------------------------
 // AUTHENTICATION API
 // ----------------------------------------------------
@@ -785,13 +805,23 @@ app.get('/api/wallet/receive', async (req, res) => {
 
   try {
     const receiveAddress = await getOrCreateReceiveAddress(username);
+
     const receiveInfo = await numistaRpc.getSubaddressReceiveInfo(
       receiveAddress.accountIndex,
       receiveAddress.addressIndex
     );
-    res.json({ ...receiveAddress, ...receiveInfo });
+
+    res.json({
+      ...receiveAddress,
+      ...receiveInfo
+    });
+
   } catch (err) {
-    res.status(503).json({ error: `Receive address unavailable: ${err.message}` });
+    console.error('RECEIVE ADDRESS ERROR:', err);
+
+    res.status(503).json({
+      error: `Receive address unavailable: ${err.message}`
+    });
   }
 });
 

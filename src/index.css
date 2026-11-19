@@ -1,0 +1,177 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-[#0b0e14] text-slate-100 font-sans min-h-screen overflow-x-hidden;
+  }
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #0f141c;
+}
+::-webkit-scrollbar-thumb {
+  background: #2a3649;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #f97316;
+}
+
+/* Leaflet map custom styling */
+.leaflet-container {
+  width: 100%;
+  height: 100%;
+  background-color: #0b0e14 !important;
+  font-family: inherit;
+}
+
+.leaflet-popup-content-wrapper {
+  background: #161d2a !important;
+  color: #f8fafc !important;
+  border: 1px solid #334155 !important;
+  border-radius: 0.75rem !important;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5) !important;
+  padding: 0 !important;
+}
+
+.leaflet-popup-content {
+  margin: 12px 14px !important;
+  line-height: 1.4 !important;
+}
+
+.leaflet-popup-tip {
+  background: #161d2a !important;
+}
+
+/* Animations */
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 15px rgba(249, 115, 22, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 28px rgba(249, 115, 22, 0.85);
+  }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2.5s infinite;
+}
+
+/* 3,500-plot grid labels */
+.plot-label-icon {
+  background: transparent !important;
+  border: none !important;
+  pointer-events: none;
+}
+
+.plot-label-icon span {
+  display: block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9px;
+  line-height: 14px;
+  letter-spacing: 0.02em;
+  color: #e2e8f0;
+  text-align: center;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95), 0 0 6px rgba(0, 0, 0, 0.8);
+  white-space: nowrap;
+  opacity: 0.85;
+}
+
+.plot-tooltip {
+  background: #161d2a !important;
+  color: #f8fafc !important;
+  border: 1px solid #475569 !important;
+  border-radius: 0.5rem !important;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.5) !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+  font-size: 11px !important;
+  padding: 5px 8px !important;
+}
+
+.plot-tooltip::before {
+  border-top-color: #475569 !important;
+}
+
+/* Coastline-clipped plot canvas */
+.uk-grid-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+  mix-blend-mode: normal;
+  transition: opacity 120ms linear;
+  will-change: transform, opacity;
+}
+
+/* Hover chip drawn just above the cursor */
+.uk-grid-tooltip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 700;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px;
+  border-radius: 8px;
+  background: rgba(15, 20, 28, 0.94);
+  border: 1px solid rgba(71, 85, 105, 0.9);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+}
+
+.uk-grid-tooltip-label {
+  font-weight: 700;
+  color: #f8fafc;
+  letter-spacing: 0.04em;
+}
+
+.uk-grid-tooltip-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  box-shadow: 0 0 6px currentColor;
+}
+
+.uk-grid-tooltip-rarity {
+  color: #cbd5e1;
+}
+
+.uk-grid-tooltip-sep {
+  color: #475569;
+}
+
+.uk-grid-tooltip-price {
+  color: #fdba74;
+}
+
+.uk-grid-tooltip-owner {
+  color: #67e8f9;
+  font-weight: 600;
+}
+
+.uk-grid-tooltip-free {
+  color: #64748b;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

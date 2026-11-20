@@ -47,6 +47,33 @@ development. Never expose a wallet or unrestricted daemon RPC directly to the
 internet; use an authenticated, encrypted, access-controlled service boundary
 for remote clients. Do not use `--disable-rpc-login` on an exposed service.
 
+## Windows local node and mining setup
+
+The game project includes `start-numista-node.ps1`. Copy `.env.example` to
+`.env`, then set `NUMISTA_NODE_EXE`, `NUMISTA_NODE_PEERS`, and
+`NUMISTA_MINING_ADDRESS` for the local machine. `.env` is ignored by Git.
+
+Run `./start-numista-node.ps1` in a PowerShell window, then launch the game
+server separately. The script selects Numista testnet, binds daemon RPC to
+loopback, allows 24 outbound and 64 inbound P2P peers by default, and starts
+block mining with the configured thread count and primary wallet address. It
+adds every comma- or semicolon-separated `host:48080` in
+`NUMISTA_NODE_PEERS`. It uses a fresh, versioned data directory under
+`%LOCALAPPDATA%` by default because the Numista testnet genesis changed.
+
+This testnet has no seed peers, so peer limits alone do not connect the node.
+Use known Numista testnet peers; inbound connections also need TCP port 48080
+reachable through the local firewall/router. Wait for the daemon to synchronize
+before mining: its RPC returns `BUSY` while the P2P layer is unsynchronized.
+The mining address must be a valid Numista testnet primary address; subaddresses
+are not accepted for block mining. Do not set `--offline`.
+
+The wallet RPC is a separate process and must have the issuer wallet open.
+Use `./start-numista-wallet-rpc.ps1` after setting the wallet-file path and, if
+needed, a protected password-file path in `.env`. The script binds the service
+to loopback and never prints the password. Keep its `.login` file and wallet
+secrets private.
+
 ## Daemon HTTP endpoints
 
 These are daemon paths on `http://<node>:48081`. The binary `.bin` endpoints
@@ -280,8 +307,12 @@ or wallet RPC directly. The API then uses the daemon at
 `NUMISTA_DAEMON_RPC` (default `http://127.0.0.1:48081`) and wallet RPC at
 `NUMISTA_WALLET_RPC` (default `http://127.0.0.1:48083`). Set
 `NUMISTA_RPC_USER` and `NUMISTA_RPC_PASS` when wallet RPC uses explicit
-credentials. The bridge can also read the wallet RPC `.login` file described
-above. Set `NUMISTA_CHAIN_MODE=live` only with the upgraded Numista node and
+credentials. The bridge answers the wallet RPC's HTTP Digest authentication
+challenge; a Basic authorization header alone is not sufficient. For a local
+wallet RPC, `NUMISTA_WALLET_LOGIN_FILE` can point to
+the exact generated `.login` file; otherwise the bridge searches
+`NUMISTA_WALLET_DIR`, its working directory, and the game directory. Set
+`NUMISTA_CHAIN_MODE=live` only with the upgraded Numista node and
 wallet that support the asset RPC methods; `auto` selects live only when the
 required methods and services are available, `simulate` uses the local test
 chain, and `off` disables chain operations.
@@ -291,10 +322,10 @@ chain, and `off` disables chain operations.
 | `POST /api/auth/register` | Creates a local game identity. It does not create a wallet file or immediately register a chain username. |
 | `POST /api/auth/login` | Issues the game's bearer token. |
 | `GET /api/wallet/receive` | Requires a valid bearer token; lazily creates and persists a wallet-RPC subaddress for native coin deposits. |
-| `GET /api/wallet` | Reads NUM asset balance from the chain ledger adapter; this is not the native coin balance. |
-| `POST /api/wallet/transfer` | Queues an in-game NUM asset transfer. It registers missing lowercase usernames first and tracks transaction confirmation. |
+| `GET /api/wallet` | Requires a bearer session; reads the caller's NUM asset balance from the chain ledger adapter, not the native coin balance. |
+| `POST /api/wallet/transfer` | Requires a bearer session; queues an in-game NUM asset transfer. It registers missing lowercase usernames first and tracks transaction confirmation. |
 | `GET /api/network/capabilities` | Reports the active chain mode, asset RPC readiness, NUM asset ID, unit scale, and required confirmations. |
-| `/api/wallet-rpc/*` and admin-only `/api/network/*` | Administrative diagnostics/proxies; the admin gate currently trusts the supplied username rather than verifying a bearer token. Keep these routes on a trusted private backend. |
+| Admin-only `/api/network/*` details and `/api/wallet-rpc/*` | Require a valid bearer session for an account with the administrator role. Keep these routes on a trusted private backend. |
 
 NUM asset quantities use `1000` integer asset units per displayed NUM in this
 application. Native coin RPC quantities use `10^12` atomic units per coin.
@@ -303,11 +334,11 @@ from its application/schema version unless `NUMISTA_CURRENCY_ASSET_ID` is
 configured. Set the same explicit ID in all environments that must refer to
 the same on-chain currency; changing it creates a different asset identity.
 
-Most game routes currently identify the caller using a username in the request
-or `X-Numista-User`; only the receive-address route verifies a bearer session
-and enforces ownership. The admin gate also trusts the supplied username.
-Treat the game API as a trusted development backend unless the other routes
-are placed behind an authenticated service layer.
+Wallet balances, transfers, mining rewards, and administrative RPC actions use
+the bearer session issued at login. When a request also names a username, the
+server checks that it matches the session. Public map and network-summary
+endpoints remain readable without signing in. Keep the game API on a trusted
+backend and use TLS when clients connect remotely.
 
 The game backend is the trust boundary between the executable/browser and a
 private node/wallet service:

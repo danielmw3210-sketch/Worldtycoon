@@ -90,7 +90,7 @@ export function GameProvider({ children }) {
     const authUser = { username: data.username, role: data.role || 'user', token: data.token };
     setUser(authUser);
     localStorage.setItem('townforge_user', JSON.stringify(authUser));
-    await refreshWallet(authUser.username);
+    await refreshWallet(authUser.username, authUser.token);
     return data;
   };
 
@@ -106,7 +106,7 @@ export function GameProvider({ children }) {
     const authUser = { username: data.username, role: data.role || 'user', token: data.token };
     setUser(authUser);
     localStorage.setItem('townforge_user', JSON.stringify(authUser));
-    await refreshWallet(authUser.username);
+    await refreshWallet(authUser.username, authUser.token);
     return data;
   };
 
@@ -132,11 +132,13 @@ export function GameProvider({ children }) {
   };
 
   // Refresh Wallet
-  const refreshWallet = async (username) => {
+  const refreshWallet = async (username, token = user?.token) => {
     try {
       const currentUsername = username || user?.username;
-      if (!currentUsername) return;
-      const res = await fetch(`/api/wallet?username=${encodeURIComponent(currentUsername)}`);
+      if (!currentUsername || !token) return;
+      const res = await fetch(`/api/wallet?username=${encodeURIComponent(currentUsername)}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
       if (res.ok) {
         const data = await res.json();
         setWallet(data);
@@ -182,7 +184,7 @@ export function GameProvider({ children }) {
   useEffect(() => {
     if (!user?.username || user.role) return;
     let cancelled = false;
-    fetch(`/api/auth/me?username=${encodeURIComponent(user.username)}`)
+    fetch(`/api/auth/me?username=${encodeURIComponent(user.username)}`, { headers: sessionHeaders() })
       .then(res => (res.ok ? res.json() : null))
       .then(data => {
         if (cancelled || !data?.role) return;
@@ -239,7 +241,7 @@ export function GameProvider({ children }) {
             try {
               const subRes = await fetch('/api/mining/submit', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: sessionHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify({
                   minerId: `browser-worker-thread-${i}`,
                   jobId,

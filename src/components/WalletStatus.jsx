@@ -72,7 +72,7 @@ export default function WalletStatus() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-numista-user': user?.username || ''
+          Authorization: `Bearer ${user?.token || ''}`
         },
         body: JSON.stringify({ toUsername: to, amount: val })
       });

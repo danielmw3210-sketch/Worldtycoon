@@ -25,6 +25,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { CONFIG } from '../config.js';
+import { numistaRpc } from './rpc.js';
 import {
   sha256Hex,
   canonicalJson,
@@ -669,34 +670,6 @@ class ChainAdapter {
     };
   }
 
-  _walletAuthHeader() {
-    let user = CONFIG.NUMISTA.RPC_USER;
-    let pass = CONFIG.NUMISTA.RPC_PASS;
-
-    if ((!user || !pass)) {
-      const port = (() => {
-        try { return new URL(CONFIG.NUMISTA.WALLET_RPC_URL).port || '48083'; } catch { return '48083'; }
-      })();
-      const candidates = [
-        process.env.NUMISTA_WALLET_DIR,
-        process.cwd(),
-        path.join(__dirname, '..', '..')
-      ].filter(Boolean).map(dir => path.join(dir, `monero-wallet-rpc.${port}.login`));
-
-      for (const file of candidates) {
-        try {
-          if (!fs.existsSync(file)) continue;
-          const raw = fs.readFileSync(file, 'utf8').trim();
-          const match = raw.match(/^([^:\s]+):(\S+)/);
-          if (match) { user = match[1]; pass = match[2]; break; }
-        } catch { /* ignore */ }
-      }
-    }
-
-    if (!user || !pass) return {};
-    return { Authorization: 'Basic ' + Buffer.from(`${user}:${pass}`).toString('base64') };
-  }
-
   async _daemonRaw(endpoint, body = {}) {
     const res = await fetch(`${CONFIG.NUMISTA.DAEMON_RPC_URL}/${endpoint}`, {
       method: 'POST',
@@ -722,16 +695,7 @@ class ChainAdapter {
   }
 
   async _walletJsonRpc(method, params = {}) {
-    const res = await fetch(`${CONFIG.NUMISTA.WALLET_RPC_URL}/json_rpc`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...this._walletAuthHeader() },
-      body: JSON.stringify({ jsonrpc: '2.0', id: '0', method, params }),
-      signal: AbortSignal.timeout(15000)
-    });
-    if (!res.ok) throw new Error(`Wallet RPC HTTP ${res.status}`);
-    const json = await res.json();
-    if (json.error) throw new Error(json.error.message || 'Wallet RPC error');
-    return json.result;
+    return numistaRpc.callWallet(method, params);
   }
 }
 

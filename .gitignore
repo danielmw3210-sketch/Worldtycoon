@@ -1,0 +1,7 @@
+# Generated wallet RPC credentials must stay local.
+monero-wallet-rpc.*.login
+.env
+.env.*
+!.env.example
+node_modules/
+dist/

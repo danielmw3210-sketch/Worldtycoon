@@ -15,10 +15,72 @@
 
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { CONFIG } from '../config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+function parseAuthChallenges(header = '') {
+  // Epee/Monero can advertise MD5 and MD5-sess as two Digest challenges in
+  // one combined WWW-Authenticate header. Parse each challenge independently.
+  const challenges = String(header)
+    .split(/,\s*(?=(?:Digest|Basic)\s+)/i)
+    .map(part => part.trim())
+    .filter(Boolean);
+  return challenges.map(value => {
+    const scheme = value.match(/^\s*(Digest|Basic)\s+/i)?.[1]?.toLowerCase();
+    if (!scheme) return null;
+    const params = {};
+    const rest = value.replace(/^\s*(?:Digest|Basic)\s+/i, '');
+    const matcher = /([a-z0-9_-]+)\s*=\s*(?:"((?:\\.|[^"])*)"|([^,\s]+))/gi;
+    let match;
+    while ((match = matcher.exec(rest))) {
+      params[match[1].toLowerCase()] = (match[2] ?? match[3] ?? '').replace(/\\(["\\])/g, '$1');
+    }
+    return { scheme, params };
+  }).filter(Boolean);
+}
+
+function digestAuthorization({ username, password, method, url, challenge, nonceCount = 1, cnonce = crypto.randomBytes(16).toString('hex') }) {
+  const { params } = challenge;
+  // Echo the algorithm token exactly as the server advertised it. Some Epee
+  // builds distinguish the canonical `MD5-sess` spelling in this header.
+  const algorithm = String(params.algorithm || 'MD5');
+  const normalizedAlgorithm = algorithm.toUpperCase();
+  const sess = normalizedAlgorithm.endsWith('-SESS');
+  const hashName = normalizedAlgorithm.replace(/-SESS$/, '').toLowerCase().replace('-', '');
+  if (!['md5', 'sha256'].includes(hashName)) throw new Error(`Unsupported wallet-RPC digest algorithm: ${algorithm}`);
+
+  const hash = value => crypto.createHash(hashName).update(value).digest('hex');
+  const realm = params.realm || '';
+  const nonce = params.nonce || '';
+  const parsedUrl = new URL(url);
+  const uri = `${parsedUrl.pathname || '/'}${parsedUrl.search}`;
+  const qops = String(params.qop || '').split(',').map(value => value.trim().toLowerCase()).filter(Boolean);
+  const qop = qops.includes('auth') ? 'auth' : '';
+  if (qops.length && !qop) throw new Error('Wallet-RPC digest challenge does not support qop=auth');
+
+  const nc = nonceCount.toString(16).padStart(8, '0');
+  let ha1 = hash(`${username}:${realm}:${password}`);
+  if (sess) ha1 = hash(`${ha1}:${nonce}:${cnonce}`);
+  const ha2 = hash(`${method}:${uri}`);
+  const response = qop
+    ? hash(`${ha1}:${nonce}:${nc}:${cnonce}:${qop}:${ha2}`)
+    : hash(`${ha1}:${nonce}:${ha2}`);
+  const quote = value => `"${String(value).replace(/["\\]/g, '\\$&')}"`;
+  const fields = [
+    `username=${quote(username)}`,
+    `realm=${quote(realm)}`,
+    `nonce=${quote(nonce)}`,
+    `uri=${quote(uri)}`,
+    `response=${quote(response)}`,
+    `algorithm=${algorithm}`
+  ];
+  if (qop) fields.push(`qop=${qop}`, `nc=${nc}`, `cnonce=${quote(cnonce)}`);
+  if (params.opaque) fields.push(`opaque=${quote(params.opaque)}`);
+  return `Digest ${fields.join(', ')}`;
+}
 
 class NumistaRpcBridge {
   constructor() {
@@ -34,6 +96,9 @@ class NumistaRpcBridge {
     this.liveInfo       = null;
 
     this._walletOpened = false;
+    this._digestNonceStates = new Map();
+    this._walletDaemonUrl = null;
+    this._walletDaemonSetup = null;
 
     // Wallet is opened lazily by whoever needs it; never fatal at startup.
     this.checkConnection();
@@ -43,35 +108,61 @@ class NumistaRpcBridge {
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
-  /** Authorization header for wallet-rpc basic auth (if set). */
-  _authHeaders() {
-    const h = { 'Content-Type': 'application/json' };
-    if (this.rpcUser && this.rpcPass) {
-      h['Authorization'] = 'Basic ' + Buffer.from(`${this.rpcUser}:${this.rpcPass}`).toString('base64');
-      return h;
+  /** Candidate wallet-rpc credentials. Values are never logged or returned. */
+  _walletCredentialCandidates() {
+    const credentials = [];
+    const add = (user, pass) => {
+      if (!user || !pass) return;
+      if (!credentials.some(candidate => candidate.user === user && candidate.pass === pass)) {
+        credentials.push({ user, pass });
+      }
+    };
+
+    // Explicit credentials take priority. If stale, a local wallet-rpc login
+    // file may contain credentials that were rotated by the wallet process.
+    add(this.rpcUser, this.rpcPass);
+
+    // Local credential files must never be sent to a non-local RPC endpoint.
+    let isLocal = false;
+    try {
+      const host = new URL(this.walletUrl).hostname.toLowerCase();
+      isLocal = ['localhost', '127.0.0.1', '[::1]', '::1'].includes(host);
+    } catch { /* invalid wallet URL will fail during fetch */ }
+
+    if (isLocal) {
+      const port = (() => {
+        try { return new URL(this.walletUrl).port || '48083'; } catch { return '48083'; }
+      })();
+      const dirs = [process.env.NUMISTA_WALLET_DIR, process.cwd(), path.join(__dirname, '..', '..')].filter(Boolean);
+      const files = [...new Set([
+        CONFIG.NUMISTA.WALLET_RPC_LOGIN_FILE,
+        ...dirs.map(dir => path.join(dir, `monero-wallet-rpc.${port}.login`))
+      ].filter(Boolean))];
+      for (const file of files) {
+        try {
+          if (!fs.existsSync(file)) continue;
+          const match = fs.readFileSync(file, 'utf8').trim().match(/^([^:\s]+):(\S+)/);
+          if (match) add(match[1], match[2]);
+        } catch { /* keep trying other login files */ }
+      }
     }
 
-    // Fall back to monero-wallet-rpc.<port>.login next to the app or wallet dir.
-    const port = (() => {
-      try { return new URL(this.walletUrl).port || '48083'; } catch { return '48083'; }
-    })();
-    const candidates = [
-      process.env.NUMISTA_WALLET_DIR,
-      process.cwd(),
-      path.join(__dirname, '..', '..')
-    ].filter(Boolean).map(dir => path.join(dir, `monero-wallet-rpc.${port}.login`));
+    return credentials;
+  }
 
-    for (const file of candidates) {
-      try {
-        if (!fs.existsSync(file)) continue;
-        const match = fs.readFileSync(file, 'utf8').trim().match(/^([^:\s]+):(\S+)/);
-        if (match) {
-          h['Authorization'] = 'Basic ' + Buffer.from(`${match[1]}:${match[2]}`).toString('base64');
-          break;
-        }
-      } catch { /* keep looking */ }
+  _nextDigestNonceState(challenge) {
+    const nonce = challenge.params.nonce || '';
+    const reset = String(challenge.params.stale || '').toLowerCase() === 'true';
+    let state = reset ? null : this._digestNonceStates.get(nonce);
+    if (!state) state = { cnonce: crypto.randomBytes(16).toString('hex'), count: 0 };
+    state.count += 1;
+    this._digestNonceStates.delete(nonce);
+    this._digestNonceStates.set(nonce, state);
+    // Bound memory if the wallet rotates its nonce over a long-running session.
+    while (this._digestNonceStates.size > 128) {
+      this._digestNonceStates.delete(this._digestNonceStates.keys().next().value);
     }
-    return h;
+    return { cnonce: state.cnonce, nonceCount: state.count };
   }
 
   async _daemonJsonRpc(method, params = {}) {
@@ -99,15 +190,112 @@ class NumistaRpcBridge {
   }
 
   async _walletRpc(method, params = {}) {
-    const res = await fetch(`${this.walletUrl}/json_rpc`, {
+    return this._walletRpcInternal(method, params);
+  }
+
+  async _ensureWalletDaemon() {
+    const address = this.daemonUrl.replace(/\/$/, '');
+    if (this._walletDaemonUrl === address) return;
+    if (this._walletDaemonSetup) return this._walletDaemonSetup;
+
+    const setup = (async () => {
+      const host = new URL(address).hostname.toLowerCase();
+      const trusted = ['localhost', '127.0.0.1', '[::1]', '::1'].includes(host);
+      await this._walletRpcInternal('set_daemon', { address, trusted }, { skipDaemonSetup: true });
+      this._walletDaemonUrl = address;
+    })();
+    this._walletDaemonSetup = setup;
+    try {
+      await setup;
+    } finally {
+      if (this._walletDaemonSetup === setup) this._walletDaemonSetup = null;
+    }
+  }
+
+  async _walletRpcInternal(method, params = {}, { skipDaemonSetup = false, daemonRetry = false } = {}) {
+    if (!skipDaemonSetup && method !== 'set_daemon') await this._ensureWalletDaemon();
+    const body = JSON.stringify({ jsonrpc: '2.0', id: '0', method, params });
+    const endpoint = `${this.walletUrl}/json_rpc`;
+    const credentials = this._walletCredentialCandidates();
+    let res = await fetch(endpoint, {
       method: 'POST',
-      headers: this._authHeaders(),
-      body: JSON.stringify({ jsonrpc: '2.0', id: '0', method, params }),
+      headers: { 'Content-Type': 'application/json' },
+      body,
       signal: AbortSignal.timeout(15_000)
     });
-    if (!res.ok) throw new Error(`Wallet-RPC HTTP ${res.status}`);
+
+    if (res.status === 401 || res.status === 403) {
+      let challenges = parseAuthChallenges(res.headers.get('www-authenticate') || '');
+      if (!challenges.length) {
+        this.isWalletOnline = false;
+        throw new Error(`Wallet-RPC requested authentication but returned no supported challenge (HTTP ${res.status})`);
+      }
+      let authenticated = false;
+      for (let round = 0; round < 2 && !authenticated; round += 1) {
+        if (round > 0) {
+          const refreshedCredentials = this._walletCredentialCandidates();
+          const previousCount = credentials.length;
+          for (const candidate of refreshedCredentials) {
+            if (!credentials.some(current => current.user === candidate.user && current.pass === candidate.pass)) {
+              credentials.push(candidate);
+            }
+          }
+          if (credentials.length === previousCount) break;
+          const refreshedChallenges = parseAuthChallenges(res.headers.get('www-authenticate') || '');
+          if (refreshedChallenges.length) challenges = refreshedChallenges;
+        }
+
+        for (const challenge of challenges) {
+          for (const credential of credentials) {
+            const authorization = challenge.scheme === 'digest'
+              ? digestAuthorization({
+                username: credential.user,
+                password: credential.pass,
+                method: 'POST',
+                url: endpoint,
+                challenge,
+                ...this._nextDigestNonceState(challenge)
+              })
+              : `Basic ${Buffer.from(`${credential.user}:${credential.pass}`).toString('base64')}`;
+            res = await fetch(endpoint, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: authorization },
+              body,
+              signal: AbortSignal.timeout(15_000)
+            });
+            if (res.status !== 401 && res.status !== 403) {
+              authenticated = true;
+              break;
+            }
+          }
+          if (authenticated) break;
+        }
+      }
+      if (!authenticated) {
+        this.isWalletOnline = false;
+        if (!credentials.length) {
+          throw new Error(`Wallet-RPC requires ${challenges[0].scheme} authentication. Set NUMISTA_RPC_USER/NUMISTA_RPC_PASS or provide its local login file for port ${new URL(this.walletUrl).port || '48083'}.`);
+        }
+        const algorithms = challenges.filter(challenge => challenge.scheme === 'digest').map(challenge => challenge.params.algorithm || 'MD5');
+        const mode = algorithms.length ? `digest authentication (${[...new Set(algorithms)].join(', ')})` : `${challenges[0].scheme} authentication`;
+        throw new Error(`Wallet-RPC rejected ${mode} (HTTP ${res.status}). Check the active wallet-RPC login file and restart the game backend after wallet RPC starts.`);
+      }
+    }
+
+    if (!res.ok) {
+      this.isWalletOnline = false;
+      throw new Error(`Wallet-RPC HTTP ${res.status}`);
+    }
     const json = await res.json();
-    if (json.error) throw new Error(`Wallet-RPC error: ${json.error.message}`);
+    if (json.error) {
+      const message = json.error.message || 'Wallet-RPC error';
+      if (!daemonRetry && method !== 'set_daemon' && /no connection to daemon|failed to connect to daemon/i.test(message)) {
+        this._walletDaemonUrl = null;
+        await this._ensureWalletDaemon();
+        return this._walletRpcInternal(method, params, { daemonRetry: true });
+      }
+      throw new Error(`Wallet-RPC error: ${message}`);
+    }
     this.isWalletOnline = true;
     return json.result;
   }
@@ -198,6 +386,7 @@ class NumistaRpcBridge {
   setDaemonUrl(url) {
     if (!url || !url.startsWith('http')) throw new Error('Invalid Node URL');
     this.daemonUrl = url.replace(/\/$/, '');
+    this._walletDaemonUrl = null;
     this.checkConnection();
     return { daemonUrl: this.daemonUrl, status: 'UPDATED' };
   }

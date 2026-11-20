@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 
 export default function BlockchainSyncModal() {
-  const { network, refreshNetwork, setActiveModal, addToast } = useGame();
+  const { network, user, refreshNetwork, setActiveModal, addToast } = useGame();
   
   const [nodeUrl, setNodeUrl] = useState(network.daemonAddress || 'http://127.0.0.1:48081');
   const [updating, setUpdating] = useState(false);
@@ -22,7 +22,10 @@ export default function BlockchainSyncModal() {
       setUpdating(true);
       const res = await fetch('/api/network/set-node', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${user?.token || ''}`
+        },
         body: JSON.stringify({ nodeUrl })
       });
       const data = await res.json();

@@ -1,3 +1,27 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// Load an ignored project-local .env before reading CONFIG. Existing process
+// environment values always take precedence (for deployment/service managers).
+function loadLocalEnvFile() {
+  const envPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.env');
+  if (!fs.existsSync(envPath)) return;
+  for (const line of fs.readFileSync(envPath, 'utf8').split(/\r?\n/)) {
+    const match = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/);
+    if (!match || process.env[match[1]] !== undefined) continue;
+    let value = match[2];
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    } else {
+      value = value.replace(/\s+#.*$/, '').trim();
+    }
+    process.env[match[1]] = value;
+  }
+}
+
+loadLocalEnvFile();
+
 export const CONFIG = {
   PORT: process.env.PORT || 3001,
   NUMISTA: {
@@ -10,7 +34,8 @@ export const CONFIG = {
     // 48082 is the daemon ZMQ port on Numista testnet, NOT wallet RPC.
     // Wallet RPC uses an operator-chosen port (48083 by default).
     WALLET_RPC_URL: process.env.NUMISTA_WALLET_RPC || "http://127.0.0.1:48083",
-    // Numista testnet address prefix is 94 (addresses begin with "S").
+    WALLET_RPC_LOGIN_FILE: process.env.NUMISTA_WALLET_LOGIN_FILE || "",
+    // Numista testnet address prefix is 153 (addresses begin with "S").
     // Do not hardcode foreign addresses here; wallets are created on the node.
     RPC_USER: process.env.NUMISTA_RPC_USER || "",
     RPC_PASS: process.env.NUMISTA_RPC_PASS || "",

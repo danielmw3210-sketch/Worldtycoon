@@ -33,16 +33,7 @@ function requestUser(req) {
 }
 
 function requireUser(req, res) {
-  const username = requestUser(req);
-  if (!username) {
-    res.status(401).json({ error: 'Sign in required' });
-    return null;
-  }
-  if (!userManager.getUser(username)) {
-    res.status(404).json({ error: 'User not found' });
-    return null;
-  }
-  return username;
+  return requireSessionUser(req, res);
 }
 
 function requireSessionUser(req, res) {
@@ -63,8 +54,9 @@ function requireSessionUser(req, res) {
 
 /** Admin gate for raw node/wallet proxies and sensitive telemetry. */
 function requireAdmin(req, res) {
-  const username = requestUser(req);
-  if (!username || !userManager.isAdmin(username)) {
+  const username = requireSessionUser(req, res);
+  if (!username) return null;
+  if (!userManager.isAdmin(username)) {
     res.status(403).json({ error: 'Administrator access required' });
     return null;
   }
@@ -143,8 +135,8 @@ app.post('/api/auth/login', (req, res) => {
 });
 
 app.get('/api/auth/me', (req, res) => {
-  const username = requestUser(req);
-  if (!username) return res.status(401).json({ error: 'Unauthorized' });
+  const username = requireSessionUser(req, res);
+  if (!username) return;
 
   const user = userManager.getUser(username);
   if (!user) return res.status(404).json({ error: 'User not found' });
@@ -780,8 +772,8 @@ app.post('/api/wallet-rpc/call', async (req, res) => {
 // ----------------------------------------------------
 
 app.get('/api/wallet', async (req, res) => {
-  const username = String(req.query.username || req.headers['x-numista-user'] || '').toLowerCase();
-  if (!username) return res.status(401).json({ error: 'Sign in required' });
+  const username = requireSessionUser(req, res);
+  if (!username) return;
   const user = userManager.getUser(username);
 
   if (user) {

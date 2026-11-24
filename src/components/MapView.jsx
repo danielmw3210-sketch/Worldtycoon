@@ -15,13 +15,6 @@ import {
 
 // Free map tile providers (public/free sources, no paid/private key needed)
 const TILE_PROVIDERS = {
-  // disabled_carto_dark: {
-    name: "Dark Cyberpunk (CARTO Free)",
-    url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-    attribution: "&copy; <a href='https://carto.com/attributions'>CARTO</a> &copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors",
-    subdomains: 'abcd',
-    maxZoom: 20
-  },
   osm_streets: {
     name: "Standard Cartography (OpenStreetMap Free)",
     url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",

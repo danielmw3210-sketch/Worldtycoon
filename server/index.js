@@ -8,6 +8,7 @@ import { gameStore } from './data/store.js';
 import { numistaRpc } from './numista/rpc.js';
 import { userManager } from './data/users.js';
 import { miningPool } from './mining/pool.js';
+import { stratumBridge } from './mining/stratumBridge.js';
 import { cryptoOnramp } from './payment/onramp.js';
 import { RARITY_TIERS } from './data/plotGrid.js';
 import { chainAdapter } from './numista/chainAdapter.js';
@@ -559,6 +560,35 @@ app.post('/api/mining/submit', async (req, res) => {
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
+});
+
+app.get('/api/mining/stratum/status', (req, res) => {
+  const username = req.session?.user?.username || req.query.username || '';
+  res.json(stratumBridge.getStatus(username));
+});
+
+app.post('/api/mining/stratum/connect', async (req, res) => {
+  try {
+    const username = requireUser(req, res);
+    if (!username) return;
+    const recv = await getOrCreateReceiveAddress(username);
+    const status = await stratumBridge.connect({
+      username,
+      poolEndpoint: req.body?.poolEndpoint,
+      loginAddress: req.body?.customAddress || recv.address,
+      workerName: req.body?.workerName || username,
+      mode: req.body?.mode || 'pplns'
+    });
+    res.json(status);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/mining/stratum/disconnect', (req, res) => {
+  const username = requireUser(req, res);
+  if (!username) return;
+  res.json(stratumBridge.disconnect(username));
 });
 
 app.get('/api/mining/stats', (req, res) => {

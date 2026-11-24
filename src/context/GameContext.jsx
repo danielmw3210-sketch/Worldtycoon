@@ -264,80 +264,49 @@ const register = async (username, password) => {
     }
   }, [plots]);
 
-  // In-Browser Mining Lifecycle (Explicitly user-activated)
-  const startMining = async () => {
+  // Stratum & Solo Mining Lifecycle (Zero HTTP flood)
+  const [stratumEndpoint, setStratumEndpoint] = useState('');
+  const [stratumStatus, setStratumStatus] = useState(null);
+
+  const startMining = async (overrideEndpoint) => {
     try {
-      const res = await fetch('/api/mining/job?username=' + encodeURIComponent(user?.username||'') + '&mode=' + miningMode);
-      const job = await res.json();
-
-      stopMiningWorkers();
-
-      const newWorkers = [];
-      for (let i = 0; i < threads; i++) {
-        const worker = new Worker(new URL('../workers/miner.worker.js', import.meta.url), { type: 'module' });
-        
-        worker.onmessage = async (e) => {
-          const { type, hashes, hashrate: workerHashrate, nonce, hash, jobId } = e.data;
-          
-          if (type === 'HASH_STATS') {
-            setTotalHashes(prev => prev + hashes);
-            setHashrate(workerHashrate * threads);
-          } else if (type === 'SHARE_FOUND') {
-            try {
-              const subRes = await fetch('/api/mining/submit', {
-                method: 'POST',
-                headers: sessionHeaders({ 'Content-Type': 'application/json' }),
-                body: JSON.stringify({
-                  minerId: `browser-worker-thread-${i}`,
-                  jobId,
-                  nonce,
-                  hash,
-                  username: user?.username || "danie"
-                })
-              });
-              if (subRes.ok) {
-                const subData = await subRes.json();
-                if (subData.accepted) {
-                  setSharesSubmitted(prev => prev + 1);
-                  if (subData.nativeBlockSubmitted && subData.reward > 0) setMinedSessionNum(prev => +(prev + subData.reward).toFixed(4));
-                  addToast(`Mining share accepted — NUM mints after 10 confirmations`, 'success');
-                  refreshWallet();
-                  if (subData.newJob) {
-                    worker.postMessage({ type: 'UPDATE_JOB', job: subData.newJob });
-                  }
-                }
-              }
-            } catch (err) {
-              console.error("Failed to submit share:", err);
-            }
-          }
-        };
-
-        worker.postMessage({ type: 'START', job });
-        newWorkers.push(worker);
+      const endpoint = String(overrideEndpoint ?? stratumEndpoint ?? '').trim();
+      if (!endpoint) {
+        addToast('Enter an external Stratum pool (host:port) or use Solo mode below', 'error');
+        return;
       }
-
-      workersRef.current = newWorkers;
+      const res = await fetch('/api/mining/stratum/connect', {
+        method: 'POST',
+        headers: sessionHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ poolEndpoint: endpoint, mode: miningMode })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to connect Stratum pool');
+      setStratumStatus(data);
       setIsMining(true);
-      addToast(`In-browser miner started with ${threads} CPU threads!`, 'info');
+      addToast('Connected to Stratum pool ' + data.poolHost + ':' + data.poolPort, 'success');
     } catch (err) {
-      addToast(`Mining failed to start: ${err.message}`, 'error');
+      addToast(err.message, 'error');
     }
   };
 
   const stopMiningWorkers = () => {
-    workersRef.current.forEach(w => {
-      w.postMessage({ type: 'STOP' });
-      w.terminate();
-    });
+    workersRef.current.forEach(w => { try { w.postMessage({ type: 'STOP' }); w.terminate(); } catch {} });
     workersRef.current = [];
-    setHashrate(0);
   };
 
-  const stopMining = () => {
+  const stopMining = async () => {
     stopMiningWorkers();
     setIsMining(false);
-    addToast("Browser miner stopped", 'info');
+    setHashrate(0);
+    try {
+      const res = await fetch('/api/mining/stratum/disconnect', {
+        method: 'POST',
+        headers: sessionHeaders({ 'Content-Type': 'application/json' })
+      });
+      if (res.ok) setStratumStatus(await res.json());
+    } catch {}
+    addToast('Disconnected from Stratum pool', 'info');
   };
 
   // Poll an on-chain job until it settles. Mints confirm after N blocks; on
@@ -518,7 +487,7 @@ const register = async (username, password) => {
         modalData,
         setModalData,
         // Mining (Off by default)
-        isMining, miningMode, setMiningMode,
+        isMining, miningMode, setMiningMode, stratumEndpoint, setStratumEndpoint, stratumStatus, setStratumStatus,
         threads,
         setThreads,
         hashrate,

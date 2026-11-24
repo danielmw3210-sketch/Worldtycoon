@@ -1,277 +1,178 @@
 import React, { useState, useEffect } from 'react';
 import { useGame } from '../context/GameContext';
-import { 
-  Pickaxe, 
-  Cpu, 
-  Zap, 
-  Coins, 
-  CheckCircle2, 
-  Activity, 
-  Flame, 
-  Sliders, 
-  ShieldCheck, 
-  RotateCcw,
-  Layers,
-  Award,
-  Radio
-} from 'lucide-react';
+import { Pickaxe, Radio, Server, ShieldCheck, Copy, Check, Power, PowerOff } from 'lucide-react';
 
 export default function BrowserMinerModal() {
-  const { isMining, miningMode, setMiningMode, 
-    threads, 
-    setThreads, 
-    hashrate, 
-    totalHashes, 
-    sharesSubmitted, 
-    minedSessionNum, 
-    startMining, 
-    stopMining, 
-    wallet,
-    network,
+  const {
+    isMining,
+    miningMode,
+    setMiningMode,
+    stratumEndpoint,
+    setStratumEndpoint,
+    stratumStatus,
+    setStratumStatus,
+    startMining,
+    stopMining,
     user,
-    setActiveModal
+    sessionHeaders,
+    setActiveModal,
+    addToast
   } = useGame();
 
-  const [poolStats, setPoolStats] = useState(null);
-  const maxCores = navigator.hardwareConcurrency || 8;
+  const [receiveAddr, setReceiveAddr] = useState('');
+  const [accountIndex, setAccountIndex] = useState(null);
+  const [copiedCmd, setCopiedCmd] = useState('');
 
   useEffect(() => {
     let mounted = true;
-    const fetchStats = async () => {
+    (async () => {
       try {
-        const username = user?.username ? encodeURIComponent(user.username) : '';
-        const res = await fetch(`/api/mining/stats?username=${username}`);
+        const res = await fetch('/api/wallet/receive', { headers: sessionHeaders() });
         if (res.ok) {
           const data = await res.json();
-          if (mounted) setPoolStats(data);
+          if (mounted) {
+            setReceiveAddr(data.address || '');
+            setAccountIndex(data.accountIndex ?? null);
+          }
         }
-      } catch {
-        // Non-critical
-      }
-    };
-    fetchStats();
-    const interval = setInterval(fetchStats, 3000);
-    return () => {
-      mounted = false;
-      clearInterval(interval);
-    };
+      } catch {}
+      try {
+        const sRes = await fetch('/api/mining/stratum/status?username=' + encodeURIComponent(user?.username || ''));
+        if (sRes.ok) {
+          const sData = await sRes.json();
+          if (mounted && sData.connected) {
+            setStratumStatus(sData);
+            if (!stratumEndpoint && sData.poolHost) setStratumEndpoint(`${sData.poolHost}:${sData.poolPort}`);
+          }
+        }
+      } catch {}
+    })();
+    return () => { mounted = false; };
   }, [user?.username]);
 
+  const copyText = (key, text) => {
+    navigator.clipboard.writeText(text);
+    setCopiedCmd(key);
+    addToast('Copied to clipboard', 'success');
+    setTimeout(() => setCopiedCmd(''), 2000);
+  };
+
+  const xmrigPoolCmd = `xmrig -o ${stratumEndpoint || 'pool.numista.local:3333'} -u ${receiveAddr || '<YOUR_SB_ADDRESS>'}.${user?.username || 'worker1'} -p x -a rx/0`;
+  const xmrigSoloCmd = `xmrig -o 127.0.0.1:48081 --daemon -u ${receiveAddr || '<YOUR_SB_ADDRESS>'} -a rx/0`;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
       <div className="bg-[#161d2a] border border-orange-500/40 w-full max-w-lg max-h-[88vh] rounded-2xl shadow-2xl overflow-y-auto flex flex-col">
-        
         {/* Header */}
-        <div className="p-6 bg-gradient-to-r from-orange-950/60 via-slate-900 to-[#161d2a] border-b border-orange-500/30 flex items-start justify-between">
-          <div className="flex items-center space-x-3.5">
-            <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-white shadow-lg border border-orange-300 transition-all ${
-              isMining 
-                ? 'bg-gradient-to-tr from-orange-600 to-amber-500 shadow-orange-500/50 animate-pulse' 
-                : 'bg-slate-800 text-slate-400'
-            }`}>
-              <Pickaxe className={`w-6 h-6 ${isMining ? 'animate-bounce' : ''}`} />
+        <div className="p-4 bg-gradient-to-r from-orange-950/60 via-slate-900 to-[#161d2a] border-b border-orange-500/30 flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white border border-orange-400/50 ${isMining ? 'bg-orange-600 animate-pulse' : 'bg-slate-800 text-slate-400'}`}>
+              <Pickaxe className="w-5 h-5" />
             </div>
             <div>
-              <div className="flex items-center space-x-2">
-                <span className="text-[10px] font-mono uppercase font-bold text-orange-400 bg-orange-950 border border-orange-700/60 px-2 py-0.5 rounded">
-                  Web Worker Proof-of-Work
-                </span>
-                <span className="text-xs text-slate-400 font-mono">
-                  RandomX-Lite WASM/Worker
-                </span>
-              </div>
-              <h2 className="text-2xl font-black text-white mt-1">Numista In-Browser Miner</h2>
+              <span className="text-[10px] font-mono uppercase font-bold text-orange-400">RandomX (rx/0) Native Mining</span>
+              <h2 className="text-lg font-black text-white leading-tight">External Stratum & Solo Miner</h2>
             </div>
           </div>
-          <button
-            onClick={() => setActiveModal(null)}
-            className="text-slate-400 hover:text-white p-2 rounded-xl hover:bg-slate-800 transition-colors"
-          >
-            ✕
-          </button>
+          <button onClick={() => setActiveModal(null)} className="text-slate-400 hover:text-white px-2.5 py-1 rounded-lg hover:bg-slate-800">✕</button>
         </div>
 
-        {/* Content */}
-        <div className="p-4 space-y-3.5"><div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-slate-900 border border-slate-800"><button disabled={isMining} onClick={() => setMiningMode("pplns")} className={"py-2 rounded-lg text-xs font-bold " + (miningMode === "pplns" ? "bg-orange-600 text-white" : "text-slate-400")}>PPLNS Pool (Native NUM)</button><button disabled={isMining} onClick={() => setMiningMode("solo")} className={"py-2 rounded-lg text-xs font-bold " + (miningMode === "solo" ? "bg-amber-600 text-white" : "text-slate-400")}>Solo Block (100% Direct)</button></div>
-
-          {/* Primary Telemetry Display */}
-          <div className="p-6 rounded-2xl bg-gradient-to-br from-orange-950/30 via-slate-900 to-slate-900 border border-orange-500/30 grid grid-cols-1 sm:grid-cols-3 gap-6 text-center">
-            
-            {/* Hashrate */}
-            <div className="space-y-1">
-              <span className="text-xs text-slate-400 uppercase font-mono flex items-center justify-center space-x-1">
-                <Activity className="w-3.5 h-3.5 text-orange-400" />
-                <span>Hashrate</span>
-              </span>
-              <div className="text-2xl font-black font-mono text-white tracking-tight">
-                {hashrate.toLocaleString()}
-              </div>
-              <span className="text-xs font-mono text-orange-400 font-semibold">Hashes / sec</span>
-            </div>
-
-            {/* Mined Coins in Session */}
-            <div className="space-y-1 sm:border-x sm:border-slate-800 sm:px-4">
-              <span className="text-xs text-slate-400 uppercase font-mono flex items-center justify-center space-x-1">
-                <Coins className="w-3.5 h-3.5 text-amber-400" />
-                <span>Session Mined</span>
-              </span>
-              <div className="text-2xl font-black font-mono text-amber-300 tracking-tight">
-                +{minedSessionNum.toFixed(4)}
-              </div>
-              <span className="text-xs font-mono text-slate-400">Native NUM (Account)</span>
-            </div>
-
-            {/* Accepted Proofs / Shares */}
-            <div className="space-y-1">
-              <span className="text-xs text-slate-400 uppercase font-mono flex items-center justify-center space-x-1">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Valid Shares</span>
-              </span>
-              <div className="text-2xl font-black font-mono text-emerald-400 tracking-tight">
-                {sharesSubmitted}
-              </div>
-              <span className="text-xs font-mono text-slate-400">Target Met</span>
-            </div>
-
-          </div>
-
-          {/* Mining Controls & Hardware Threads */}
-          <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-4">
-            
-            {/* Status Notice */}
-            <div className={`p-3 rounded-xl border text-xs font-mono flex items-center justify-between ${
-              isMining 
-                ? 'bg-orange-950/40 border-orange-500/50 text-orange-300' 
-                : 'bg-slate-950 border-slate-800 text-slate-400'
-            }`}>
-              <span className="flex items-center">
-                <span className={`w-2.5 h-2.5 rounded-full mr-2 ${isMining ? 'bg-orange-500 animate-ping' : 'bg-rose-500'}`}></span>
-                Miner Status: <strong className={`ml-1 ${isMining ? 'text-orange-400' : 'text-slate-300'}`}>{isMining ? 'ACTIVE (Mining)' : 'OFF (Idle)'}</strong>
-              </span>
-              <span className="text-[11px] text-slate-500">
-                {isMining ? 'Earning 0.05 NUM/share' : 'Turn ON to start hashing'}
-              </span>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <Cpu className="w-4 h-4 text-orange-400" />
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-300 font-mono">
-                  Hardware CPU Threads: {threads} / {maxCores}
-                </span>
-              </div>
-              <span className="text-xs text-slate-400 font-mono">
-                {threads === maxCores ? 'Maximum Load' : `${Math.round((threads/maxCores)*100)}% Capacity`}
-              </span>
-            </div>
-
-            {/* Thread Slider */}
-            <input
-              type="range"
-              min="1"
-              max={maxCores}
-              value={threads}
+        {/* Body */}
+        <div className="p-4 space-y-4">
+          {/* Mode Switcher */}
+          <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-slate-900 border border-slate-800">
+            <button
               disabled={isMining}
-              onChange={(e) => setThreads(parseInt(e.target.value, 10))}
-              className="w-full accent-orange-500 cursor-pointer disabled:opacity-50"
-            />
+              onClick={() => setMiningMode('pplns')}
+              className={`py-2 rounded-lg text-xs font-bold transition-all ${miningMode === 'pplns' ? 'bg-orange-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
+            >
+              External PPLNS Pool
+            </button>
+            <button
+              disabled={isMining}
+              onClick={() => setMiningMode('solo')}
+              className={`py-2 rounded-lg text-xs font-bold transition-all ${miningMode === 'solo' ? 'bg-amber-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
+            >
+              Solo Mode (100% Direct)
+            </button>
+          </div>
 
-            <div className="flex items-center justify-between text-[11px] text-slate-500 font-mono">
-              <span>Eco (1 Thread)</span>
-              <span>Balanced ({Math.floor(maxCores / 2)} Threads)</span>
-              <span>Full Rig ({maxCores} Threads)</span>
+          {/* Player Native Payout Address */}
+          <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800 space-y-1">
+            <div className="flex items-center justify-between text-[11px] font-mono text-slate-400">
+              <span className="flex items-center gap-1 text-emerald-400"><ShieldCheck className="w-3.5 h-3.5" /> Native Payout Wallet (Account #{accountIndex ?? '…'})</span>
+              <button onClick={() => copyText('addr', receiveAddr)} className="text-slate-300 hover:text-white flex items-center gap-1">
+                {copiedCmd === 'addr' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />} Copy
+              </button>
             </div>
+            <div className="font-mono text-[11px] text-slate-200 break-all bg-slate-950 p-2 rounded-lg border border-slate-800/80">
+              {receiveAddr || 'Loading player native Sb... address...'}
+            </div>
+          </div>
 
-            {/* Start / Stop Button */}
-            <div className="pt-2">
-              {!isMining ? (
-                <button
-                  onClick={startMining}
-                  className="w-full py-3.5 rounded-xl bg-gradient-to-r from-orange-600 via-amber-600 to-orange-500 hover:from-orange-500 hover:to-amber-500 text-white font-extrabold text-sm shadow-xl shadow-orange-600/30 transition-all flex items-center justify-center space-x-2 transform active:scale-95"
-                >
-                  <Pickaxe className="w-5 h-5 text-white" />
-                  <span>START BROWSER MINER</span>
-                </button>
-              ) : (
-                <button
-                  onClick={stopMining}
-                  className="w-full py-3.5 rounded-xl bg-gradient-to-r from-rose-700 to-red-600 hover:from-rose-600 hover:to-red-500 text-white font-extrabold text-sm shadow-xl shadow-red-700/30 transition-all flex items-center justify-center space-x-2 transform active:scale-95"
-                >
-                  <Flame className="w-5 h-5 text-white animate-pulse" />
-                  <span>PAUSE MINER</span>
-                </button>
+          {miningMode === 'pplns' ? (
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-mono text-slate-300 mb-1">External PPLNS Stratum Pool (`host:port`)</label>
+                <input
+                  type="text"
+                  disabled={isMining}
+                  value={stratumEndpoint}
+                  onChange={(e) => setStratumEndpoint(e.target.value)}
+                  placeholder="e.g. ://example.com"
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-sm font-mono text-white focus:outline-none focus:border-orange-500"
+                />
+              </div>
+
+              {stratumStatus?.connected && (
+                <div className="p-3 rounded-xl bg-emerald-950/30 border border-emerald-500/40 text-xs font-mono space-y-1">
+                  <div className="flex items-center justify-between text-emerald-400 font-bold">
+                    <span className="flex items-center gap-1.5"><Radio className="w-3.5 h-3.5 animate-pulse" /> Stratum Connected</span>
+                    <span>Height #{stratumStatus.height || '—'}</span>
+                  </div>
+                  <div className="text-slate-300">Pool: {stratumStatus.poolHost}:{stratumStatus.poolPort}</div>
+                  <div className="text-slate-400 truncate">Job ID: {stratumStatus.jobId || 'Waiting for job…'}</div>
+                </div>
               )}
-            </div>
 
-          </div>
+              <button
+                onClick={() => (isMining ? stopMining() : startMining())}
+                className={`w-full py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
+                  isMining
+                    ? 'bg-rose-600 hover:bg-rose-500 text-white'
+                    : 'bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white shadow-lg'
+                }`}
+              >
+                {isMining ? <><PowerOff className="w-4 h-4" /> Disconnect Stratum Pool</> : <><Power className="w-4 h-4" /> Connect to PPLNS Stratum Pool</>}
+              </button>
 
-          {/* PPLNS Mining Pool Telemetry */}
-          <div className="p-4 rounded-xl bg-slate-900/60 border border-orange-500/20 text-xs space-y-2.5">
-            <div className="flex items-center justify-between">
-              <span className="text-slate-400 flex items-center space-x-1.5">
-                <Layers className="w-3.5 h-3.5 text-orange-400" />
-                <span>Pool Scheme:</span>
-              </span>
-              <span className="font-mono font-bold text-orange-400 bg-orange-950/80 px-2 py-0.5 rounded border border-orange-800/50">
-                {poolStats?.scheme || 'PPLNS'} (Pay-Per-Last-N-Shares)
-              </span>
-            </div>
+              <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 space-y-1.5">
+                <div className="flex items-center justify-between text-[11px] font-mono text-slate-400">
+Use code with caution.
+ XMRig Pool Rig Command
+<button onClick={() => copyText('pool', xmrigPoolCmd)} className="text-slate-300 hover:text-white flex items-center gap-1">
+{copiedCmd === 'pool' ?  : } Copy
 
-            <div className="flex items-center justify-between text-slate-400">
-              <span>PPLNS Rolling Window:</span>
-              <span className="font-mono text-slate-200">
-                {poolStats?.sharesInWindow ?? 0} / {poolStats?.pplnsWindowSize ?? 1000} shares
-              </span>
-            </div>
 
-            <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
-              <div 
-                className="bg-gradient-to-r from-orange-500 to-amber-400 h-full transition-all duration-500"
-                style={{ width: `${Math.min(100, ((poolStats?.sharesInWindow || 0) / (poolStats?.pplnsWindowSize || 1000)) * 100)}%` }}
-              />
-            </div>
+{xmrigPoolCmd}
 
-            <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-800/80">
-              <div className="flex items-center justify-between text-slate-400">
-                <span>Your Pool Share:</span>
-                <span className="font-mono font-bold text-amber-300">
-                  {poolStats?.userPplns?.sharePct ?? 0}%
-                </span>
-              </div>
-              <div className="flex items-center justify-between text-slate-400">
-                <span>Est. Round Payout:</span>
-                <span className="font-mono font-bold text-emerald-400">
-                  ~{poolStats?.userPplns?.estimatedBlockPayout ?? 0} NUM
-                </span>
-              </div>
-            </div>
 
-            <div className="flex items-center justify-between text-slate-400 pt-1 border-t border-slate-800/60">
-              <span className="flex items-center space-x-1">
-                <Award className="w-3.5 h-3.5 text-amber-400" />
-                <span>Round Bounty:</span>
-              </span>
-              <span className="font-mono text-white">
-                {poolStats?.expectedBlockReward ?? 50} NUM ({poolStats?.blocksFound ?? 0} blocks solved)
-              </span>
-            </div>
+) : (
 
-            <div className="flex items-center justify-between text-slate-400 pt-1 border-t border-slate-800/60">
-              <span className="flex items-center space-x-1">
-                <Radio className="w-3.5 h-3.5 text-cyan-400" />
-                <span>Native Blockchain:</span>
-              </span>
-              <span className="font-mono text-cyan-300">
-                {poolStats?.connectedToNativeDaemon 
-                  ? `Live Template (Height #${poolStats.nativeHeight})` 
-                  : 'Daemon Standby'}
-              </span>
-            </div>
-          </div>
 
-        </div>
+100% Direct Solo Block Rewards
+Point XMRig directly at a Numista daemon with your isolated player address below. Every block found pays 100% of the coinbase reward directly into your Account #{accountIndex ?? '…'} on-chain.
+XMRig Solo Daemon Command (rx/0)
+<button onClick={() => copyText('solo', xmrigSoloCmd)} className="text-slate-300 hover:text-white flex items-center gap-1">
+{copiedCmd === 'solo' ?  : } Copy
 
-      </div>
-    </div>
-  );
+
+{xmrigSoloCmd}
+
+
+)}
+
+
+
+);
 }

@@ -299,7 +299,7 @@ const register = async (username, password) => {
                 const subData = await subRes.json();
                 if (subData.accepted) {
                   setSharesSubmitted(prev => prev + 1);
-                  setMinedSessionNum(prev => +(prev + subData.reward).toFixed(4));
+                  if (subData.nativeBlockSubmitted && subData.reward > 0) setMinedSessionNum(prev => +(prev + subData.reward).toFixed(4));
                   addToast(`Mining share accepted — NUM mints after 10 confirmations`, 'success');
                   refreshWallet();
                   if (subData.newJob) {

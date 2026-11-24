@@ -53,7 +53,7 @@ export function GameProvider({ children }) {
   const [modalData, setModalData] = useState(null);
 
   // In-Browser Mining Engine State (OFF BY DEFAULT)
-  const [isMining, setIsMining] = useState(false);
+  const [isMining, miningMode, setMiningMode, setIsMining] = useState(false);
   const [threads, setThreads] = useState(Math.min(4, navigator.hardwareConcurrency || 2));
   const [hashrate, setHashrate] = useState(0);
   const [totalHashes, setTotalHashes] = useState(0);
@@ -517,7 +517,7 @@ const register = async (username, password) => {
         modalData,
         setModalData,
         // Mining (Off by default)
-        isMining,
+        isMining, miningMode, setMiningMode,
         threads,
         setThreads,
         hashrate,

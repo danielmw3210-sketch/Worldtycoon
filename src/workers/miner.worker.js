@@ -37,5 +37,5 @@ self.onmessage = function (e) {
   const {type, job} = e.data;
   if (type === 'START') {isMining=true;currentJob=job;hashesCalculated=0;lastReportTime=performance.now();runMiningLoop();}
   else if (type === 'UPDATE_JOB') {currentJob=job;}
-  else if (type === 'STOP'){=isMining=false;currentJob=null;}
+  else if (type === 'STOP'){isMining=false;currentJob=null;}
 };

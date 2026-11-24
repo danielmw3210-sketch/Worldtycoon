@@ -554,28 +554,7 @@ app.post('/api/mining/submit', async (req, res) => {
     if (!username) return;
 
     const result = await miningPool.submitShare({ minerId, jobId, nonce, hash, username });
-    if (result.accepted) {
-      if (result.scheme === 'PPLNS') {
-        if (result.payouts && result.payouts.length > 0) {
-          for (const payout of result.payouts) {
-            gameStore.creditMiningReward(
-              payout.username,
-              payout.amount,
-              `pplns:block:${jobId}`
-            );
-          }
-        }
-        result.pendingMining = gameStore.pendingMining.get(username)?.amount || 0;
-      } else {
-        const mining = gameStore.creditMiningReward(
-          username,
-          CONFIG.ECONOMY.MINING_SHARE_REWARD,
-          `share:${jobId}:${nonce}`
-        );
-        result.pendingMining = mining?.pendingMining ?? null;
-      }
-    }
-    result.wallet = walletView(username);
+    if (result.accepted && result.payouts?.length) { for (const po of result.payouts) { try { const r = await getOrCreateReceiveAddress(po.username); if (r?.address && po.amount >= 0.01) await numistaRpc.sendTransfer({ accountIndex: 0, toAddress: r.address, amountNum: po.amount }); } catch {} } } result.wallet = walletView(username);
     res.json(result);
   } catch (err) {
     res.status(400).json({ error: err.message });

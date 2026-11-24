@@ -93,7 +93,7 @@ export default function BrowserMinerModal() {
         </div>
 
         {/* Content */}
-        <div className="p-6 space-y-6">
+        <div className="p-6 space-y-6"><div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-slate-900 border border-slate-800"><button disabled={isMining} onClick={() => setMiningMode("pplns")} className={"py-2 rounded-lg text-xs font-bold " + (miningMode === "pplns" ? "bg-orange-600 text-white" : "text-slate-400")}>PPLNS Pool (Native NUM)</button><button disabled={isMining} onClick={() => setMiningMode("solo")} className={"py-2 rounded-lg text-xs font-bold " + (miningMode === "solo" ? "bg-amber-600 text-white" : "text-slate-400")}>Solo Block (100% Direct)</button></div>
 
           {/* Primary Telemetry Display */}
           <div className="p-6 rounded-2xl bg-gradient-to-br from-orange-950/30 via-slate-900 to-slate-900 border border-orange-500/30 grid grid-cols-1 sm:grid-cols-3 gap-6 text-center">
@@ -119,7 +119,7 @@ export default function BrowserMinerModal() {
               <div className="text-4xl font-black font-mono text-amber-300 tracking-tight">
                 +{minedSessionNum.toFixed(4)}
               </div>
-              <span className="text-xs font-mono text-slate-400">NUM Credited</span>
+              <span className="text-xs font-mono text-slate-400">Native NUM (Account)</span>
             </div>
 
             {/* Accepted Proofs / Shares */}

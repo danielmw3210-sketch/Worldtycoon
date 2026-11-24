@@ -266,7 +266,7 @@ const register = async (username, password) => {
   // In-Browser Mining Lifecycle (Explicitly user-activated)
   const startMining = async () => {
     try {
-      const res = await fetch('/api/mining/job');
+      const res = await fetch('/api/mining/job?username=' + encodeURIComponent(user?.username||'') + '&mode=' + miningMode);
       const job = await res.json();
 
       stopMiningWorkers();

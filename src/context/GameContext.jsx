@@ -53,7 +53,8 @@ export function GameProvider({ children }) {
   const [modalData, setModalData] = useState(null);
 
   // In-Browser Mining Engine State (OFF BY DEFAULT)
-  const [isMining, miningMode, setMiningMode, setIsMining] = useState(false);
+  const [isMining, setIsMining] = useState(false);
+  const [miningMode, setMiningMode] = useState('pplns');
   const [threads, setThreads] = useState(Math.min(4, navigator.hardwareConcurrency || 2));
   const [hashrate, setHashrate] = useState(0);
   const [totalHashes, setTotalHashes] = useState(0);

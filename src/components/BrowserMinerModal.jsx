@@ -59,7 +59,7 @@ export default function BrowserMinerModal() {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn">
-      <div className="bg-[#161d2a] border border-orange-500/40 w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+      <div className="bg-[#161d2a] border border-orange-500/40 w-full max-w-lg max-h-[88vh] rounded-2xl shadow-2xl overflow-y-auto flex flex-col">
         
         {/* Header */}
         <div className="p-6 bg-gradient-to-r from-orange-950/60 via-slate-900 to-[#161d2a] border-b border-orange-500/30 flex items-start justify-between">
@@ -92,7 +92,7 @@ export default function BrowserMinerModal() {
         </div>
 
         {/* Content */}
-        <div className="p-6 space-y-6"><div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-slate-900 border border-slate-800"><button disabled={isMining} onClick={() => setMiningMode("pplns")} className={"py-2 rounded-lg text-xs font-bold " + (miningMode === "pplns" ? "bg-orange-600 text-white" : "text-slate-400")}>PPLNS Pool (Native NUM)</button><button disabled={isMining} onClick={() => setMiningMode("solo")} className={"py-2 rounded-lg text-xs font-bold " + (miningMode === "solo" ? "bg-amber-600 text-white" : "text-slate-400")}>Solo Block (100% Direct)</button></div>
+        <div className="p-4 space-y-3.5"><div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-slate-900 border border-slate-800"><button disabled={isMining} onClick={() => setMiningMode("pplns")} className={"py-2 rounded-lg text-xs font-bold " + (miningMode === "pplns" ? "bg-orange-600 text-white" : "text-slate-400")}>PPLNS Pool (Native NUM)</button><button disabled={isMining} onClick={() => setMiningMode("solo")} className={"py-2 rounded-lg text-xs font-bold " + (miningMode === "solo" ? "bg-amber-600 text-white" : "text-slate-400")}>Solo Block (100% Direct)</button></div>
 
           {/* Primary Telemetry Display */}
           <div className="p-6 rounded-2xl bg-gradient-to-br from-orange-950/30 via-slate-900 to-slate-900 border border-orange-500/30 grid grid-cols-1 sm:grid-cols-3 gap-6 text-center">
@@ -103,7 +103,7 @@ export default function BrowserMinerModal() {
                 <Activity className="w-3.5 h-3.5 text-orange-400" />
                 <span>Hashrate</span>
               </span>
-              <div className="text-4xl font-black font-mono text-white tracking-tight">
+              <div className="text-2xl font-black font-mono text-white tracking-tight">
                 {hashrate.toLocaleString()}
               </div>
               <span className="text-xs font-mono text-orange-400 font-semibold">Hashes / sec</span>
@@ -115,7 +115,7 @@ export default function BrowserMinerModal() {
                 <Coins className="w-3.5 h-3.5 text-amber-400" />
                 <span>Session Mined</span>
               </span>
-              <div className="text-4xl font-black font-mono text-amber-300 tracking-tight">
+              <div className="text-2xl font-black font-mono text-amber-300 tracking-tight">
                 +{minedSessionNum.toFixed(4)}
               </div>
               <span className="text-xs font-mono text-slate-400">Native NUM (Account)</span>
@@ -127,7 +127,7 @@ export default function BrowserMinerModal() {
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                 <span>Valid Shares</span>
               </span>
-              <div className="text-4xl font-black font-mono text-emerald-400 tracking-tight">
+              <div className="text-2xl font-black font-mono text-emerald-400 tracking-tight">
                 {sharesSubmitted}
               </div>
               <span className="text-xs font-mono text-slate-400">Target Met</span>

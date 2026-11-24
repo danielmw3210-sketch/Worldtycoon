@@ -134,19 +134,19 @@ class MiningPoolManager {
     }, 10000);
   }
 
-  getJob(minerId = 'browser-worker-default', username = 'anon') {
+  async getJob(minerId = 'browser-worker-default', username = 'anon', mode = 'pplns', soloAddress = '') {
     // Trigger async sync in background if template is older than 15s
     if (Date.now() - this.lastTemplateFetch > 15000) {
       this.syncNativeTemplate(false).catch(() => {});
     }
 
-    const t = this.nativeTemplate;
+    let t = this.nativeTemplate;if (mode === 'solo' && soloAddress) { try { t = await numistaRpc.getBlockTemplate(soloAddress, 60) || t; } catch {} }
     const cleanUser = String(username || 'anon').toLowerCase();
     const jobId = 'job-' + Date.now() + '-' + Math.floor(Math.random() * 10000);
     const startNonce = Math.floor(Math.random() * 0x7fffffff);
 
     const job = {
-      jobId,
+      jobId,mode:mode==='solo'?'solo':'pplns',
       seed: t?.seedHash || this.currentSeed,
       blockhashingBlob: t?.blockhashingBlob || '',
       blockHeight: t?.height || numistaRpc.syncStatus.height || 0,
@@ -233,7 +233,7 @@ class MiningPoolManager {
     }
 
     // Minimum requirement: starts with '000'
-    const expectedHash = this.fastMixHash(active.seed, nonceNumber);
+    const blob = active.blockhashingBlob || active.seed;const nb=Buffer.alloc(4);nb.writeUInt32LE(nonceNumber>>>0,0);const spl=blob.length>=86?blob.slice(0,78)+nb.toString('hex')+blob.slice(86):blob+':'+nonceNumber;const expectedHash = this.fastMixHash(spl, nonceNumber);
     if (!hash.startsWith('000') || expectedHash !== hash.toLowerCase()) {
       return { accepted: false, reason: 'Invalid proof of work' };
     }

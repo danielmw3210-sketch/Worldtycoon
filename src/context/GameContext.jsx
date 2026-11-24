@@ -21,7 +21,7 @@ export function GameProvider({ children }) {
 
   // Map Tile Style (CARTO Dark, OSM Standard, Esri Satellite)
   const [mapStyle, setMapStyle] = useState(() => {
-    return localStorage.getItem('goldnumista_map_style') || 'carto_dark';
+    return localStorage.getItem('goldnumista_map_style') || 'osm_streets';
   });
 
   // User & in-game NUM asset state (native-coin receive data loads in WalletStatus)

@@ -540,10 +540,10 @@ app.post('/api/stocks/trade', (req, res) => {
 // IN-BROWSER MINING POOL API
 // ----------------------------------------------------
 
-app.get('/api/mining/job', (req, res) => {
+app.get('/api/mining/job', async (req, res) => {
   const minerId = req.query.minerId || 'browser-miner-01';
   const username = req.session?.user?.username || req.query.username || 'anon';
-  const job = miningPool.getJob(minerId, username);
+  const mode = String(req.query?.mode || 'pplns').toLowerCase();const recv = username && username !== 'anon' ? await getOrCreateReceiveAddress(username).catch(() => null) : null;const job = await miningPool.getJob(minerId, username, mode, recv&&recv.address?recv.address:'');
   res.json(job);
 });
 

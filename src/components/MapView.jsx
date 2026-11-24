@@ -15,7 +15,7 @@ import {
 
 // Free map tile providers (public/free sources, no paid/private key needed)
 const TILE_PROVIDERS = {
-  carto_dark: {
+  // disabled_carto_dark: {
     name: "Dark Cyberpunk (CARTO Free)",
     url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
     attribution: "&copy; <a href='https://carto.com/attributions'>CARTO</a> &copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors",
@@ -163,8 +163,8 @@ export default function MapView() {
       tileLayer.on('tileerror', () => {
         tileErrorCount += 1;
         if (tileErrorCount < 3) return;
-        const fallbackOrder = ['carto_dark', 'osm_streets', 'esri_satellite', 'opentopo'];
-        const currentKey = localStorage.getItem('goldnumista_map_style') || mapStyle || 'carto_dark';
+        const fallbackOrder = ['osm_streets', 'esri_satellite', 'opentopo'];
+        const currentKey = localStorage.getItem('goldnumista_map_style') || mapStyle || 'osm_streets';
         const idx = Math.max(0, fallbackOrder.indexOf(currentKey));
         const nextKey = fallbackOrder.find((k, i) => i > idx) || fallbackOrder.find(k => k !== currentKey);
         if (!nextKey || !TILE_PROVIDERS[nextKey]) return;

@@ -283,6 +283,24 @@ const register = async (username, password) => {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to connect Stratum pool');
       setStratumStatus(data);
+      stopMiningWorkers();
+      const job = { jobId: data.jobId || 'stratum-job', blob: data.seedHash || data.jobId || 'numista' };
+      const wList = [];
+      for (let i = 0; i < threads; i++) {
+        const w = new Worker(new URL('../workers/miner.worker.js', import.meta.url), { type: 'module' });
+        w.onmessage = async (ev) => {
+          if (ev.data.type === 'HASH_STATS') { setTotalHashes(p => p + ev.data.hashes); setHashrate(ev.data.hashrate * threads); }
+          else if (ev.data.type === 'SHARE_FOUND') {
+            try {
+              const sr = await fetch('/api/mining/stratum/submit', { method: 'POST', headers: sessionHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ jobId: ev.data.jobId, nonceHex: ev.data.nonceHex, resultHex: ev.data.resultHex }) });
+              if (sr.ok) { const sd = await sr.json(); setSharesSubmitted(p => p + 1); if (sd.status) setStratumStatus(sd.status); }
+            } catch {}
+          }
+        };
+        w.postMessage({ type: 'START', job });
+        wList.push(w);
+      }
+      workersRef.current = wList;
       setIsMining(true);
       addToast('Connected to Stratum pool ' + data.poolHost + ':' + data.poolPort, 'success');
     } catch (err) {

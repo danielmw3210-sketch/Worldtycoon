@@ -47,6 +47,28 @@ class StratumBridgeManager {
     };
   }
 
+  submitShare({ username, jobId, nonceHex, resultHex }) {
+    const clean = String(username || '').trim().toLowerCase();
+    const s = this.sessions.get(clean);
+    if (!s || !s.connected || !s.socket || !s.rpcId) {
+      throw new Error('Stratum session not connected');
+    }
+    const payload = JSON.stringify({
+      id: 4,
+      jsonrpc: '2.0',
+      method: 'submit',
+      params: {
+        id: s.rpcId,
+        job_id: String(jobId || s.job?.job_id || ''),
+        nonce: String(nonceHex || ''),
+        result: String(resultHex || '')
+      }
+    }) + '\n';
+    s.socket.write(payload);
+    s.acceptedShares += 1;
+    return this.getStatus(clean);
+  }
+
   disconnect(username) {
     const clean = String(username || '').trim().toLowerCase();
     const s = this.sessions.get(clean);

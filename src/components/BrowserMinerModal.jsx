@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useGame } from '../context/GameContext';
 export default function BrowserMinerModal() {
-  const { isMining, miningMode, setMiningMode, stratumEndpoint, setStratumEndpoint, stratumStatus, setStratumStatus, startMining, stopMining, user, setActiveModal, addToast } = useGame();
+  const { isMining, hashrate, sharesSubmitted, miningMode, setMiningMode, stratumEndpoint, setStratumEndpoint, stratumStatus, setStratumStatus, startMining, stopMining, user, setActiveModal, addToast } = useGame();
   const [receiveAddr, setReceiveAddr] = useState('');
   const [accountIndex, setAccountIndex] = useState(null);
   const [copied, setCopied] = useState('');
@@ -33,7 +33,7 @@ export default function BrowserMinerModal() {
           {miningMode === 'pplns' ? (
             <div className='space-y-3'>
               <div><label className='block text-xs font-mono text-slate-300 mb-1'>External PPLNS Stratum Pool (host:port)</label><input type='text' disabled={isMining} value={stratumEndpoint} onChange={(e) => setStratumEndpoint(e.target.value)} placeholder='127.0.0.1:3333 (Built-in PPLNS Pool) or custom host:port' className='w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-sm font-mono text-white' /></div>
-              {stratumStatus?.connected && (<div className='p-3 rounded-xl bg-emerald-950/30 border border-emerald-500/40 text-xs font-mono space-y-1'><div className='flex justify-between text-emerald-400 font-bold'><span>Stratum Connected</span><span>Height #{stratumStatus.height || '-'}</span></div><div className='text-slate-300'>Pool: {stratumStatus.poolHost}:{stratumStatus.poolPort}</div><div className='text-slate-400 truncate'>Job ID: {stratumStatus.jobId || 'Waiting...'}</div></div>)}
+              {stratumStatus?.connected && (<div className='p-3 rounded-xl bg-emerald-950/30 border border-emerald-500/40 text-xs font-mono space-y-1'><div className='flex justify-between text-emerald-400 font-bold'><span>Stratum Connected</span><span>Height #{stratumStatus.height || '-'}</span></div><div className='text-slate-300'>Pool: {stratumStatus.poolHost}:{stratumStatus.poolPort}</div><div className='flex justify-between text-amber-300 font-bold'><span>Hashrate: {hashrate.toLocaleString()} H/s</span><span>Accepted Shares: {stratumStatus.acceptedShares ?? sharesSubmitted}</span></div><div className='text-slate-400 truncate'>Job ID: {stratumStatus.jobId || 'Waiting...'}</div></div>)}
               <button onClick={() => (isMining ? stopMining() : startMining())} className={'w-full py-2.5 rounded-xl font-bold text-xs text-white ' + (isMining ? 'bg-rose-600 hover:bg-rose-500' : 'bg-orange-600 hover:bg-orange-500')}>{isMining ? 'Disconnect Stratum Pool' : 'Start PPLNS Pool Mining'}</button>
               <div className='p-3 rounded-xl bg-slate-900 border border-slate-800 space-y-1'><div className='flex justify-between text-[11px] font-mono text-slate-400'><span>XMRig Pool Rig Command</span><button onClick={() => copy('pool', poolCmd)} className='text-slate-300 hover:text-white'>{copied === 'pool' ? 'Copied' : 'Copy'}</button></div><pre className='text-[10px] font-mono text-amber-300 bg-slate-950 p-2 rounded-lg overflow-x-auto'>{poolCmd}</pre></div>
             </div>

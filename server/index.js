@@ -595,6 +595,22 @@ app.post('/api/mining/stratum/connect', async (req, res) => {
   }
 });
 
+app.post('/api/mining/stratum/submit', (req, res) => {
+  try {
+    const username = requireUser(req, res);
+    if (!username) return;
+    const status = stratumBridge.submitShare({
+      username,
+      jobId: req.body?.jobId,
+      nonceHex: req.body?.nonceHex,
+      resultHex: req.body?.resultHex
+    });
+    res.json({ accepted: true, status });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 app.post('/api/mining/stratum/disconnect', (req, res) => {
   const username = requireUser(req, res);
   if (!username) return;
@@ -1331,7 +1347,21 @@ async function boot() {
   // Load the custodial wallet up front so subaddress and asset operations do
   // not each pay the "No wallet file" retry cost.
   numistaRpc.ensureWalletOpen()
-    .then(result => console.log(`[wallet-rpc] custodial wallet ready: ${result.filename}`))
+    .then(async result => {
+      console.log(`[wallet-rpc] custodial wallet ready: ${result.filename}`);
+      const accts = await numistaRpc._walletRpc('get_accounts', {}).catch(() => null);
+      for (const a of (accts?.subaddress_accounts || []).sort((x,y) => x.account_index - y.account_index)) {
+        if (a.account_index > 0 && a.label && a.label.includes('@')) {
+          const uname = a.label.slice(a.label.indexOf('@') + 1).trim().toLowerCase();
+          if (uname && !userManager.users.has(uname)) {
+            userManager.register({ username: uname, password: 'password123' });
+          }
+          if (uname && !userManager.getUser(uname)?.receiveAddress) {
+            userManager.setReceiveAddress(uname, { address: a.base_address, accountIndex: a.account_index, addressIndex: 0 });
+          }
+        }
+      }
+    })
     .catch(err => console.warn(`[wallet-rpc] custodial wallet not ready: ${err.message}`));
 
   console.log(`[chain] mode=${capabilities.mode} ready=${capabilities.ready} :: ${capabilities.reason}`);

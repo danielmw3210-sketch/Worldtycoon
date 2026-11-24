@@ -679,6 +679,12 @@ class NumistaRpcBridge {
   }
 
   async createAccount(label = '') {
+    if (label) {
+      const all = await this._walletRpc('get_accounts', {}).catch(() => null);
+      const userSuffix = label.includes('@') ? label.slice(label.indexOf('@')).toLowerCase() : label.toLowerCase();
+      const existing = (all?.subaddress_accounts || []).find(a => a.account_index > 0 && a.label && a.label.toLowerCase().endsWith(userSuffix));
+      if (existing) return { accountIndex: existing.account_index, address: existing.base_address };
+    }
     const result = await this._walletRpc('create_account', { label });
     return { accountIndex: result.account_index, address: result.address };
   }

@@ -80,7 +80,7 @@ export const CONFIG = {
     MAX_SUPPLY_UNITS: 1_000_000_000_000 * 1000,
     CURRENCY_ASSET_ID: process.env.NUMISTA_CURRENCY_ASSET_ID || "",
     ISSUER_PUBLIC_KEY: process.env.NUMISTA_ISSUER_PUBLIC_KEY || "3f50a0c86240ef57be837c5c3e6ca4f669db3b13e7954700337b0613bdd08b04",
-    ISSUER_WALLET_FILE: process.env.NUMISTA_ISSUER_WALLET || "admin",
+    ISSUER_WALLET_FILE: process.env.NUMISTA_ISSUER_WALLET || "goldnumista",
     ISSUER_WALLET_PASSWORD: process.env.NUMISTA_ISSUER_WALLET_PASSWORD || "",
     // Native coin address that receives block rewards and backs the game
     // treasury. From the node's miner wallet document.

@@ -18,8 +18,12 @@ services:
         sync: false
       - key: NUMISTA_RPC_PASS
         sync: false
+      - key: NUMISTA_ISSUER_WALLET
+        value: goldnumista
+      - key: NUMISTA_ISSUER_WALLET_PASSWORD
+        sync: false
       - key: NUMISTA_ISSUER_PUBLIC_KEY
-        value: 01d74e78073d0b5a4d7c27c6b0aa43281d7db53766467a8a316420b4c14e2e06
+        value: 3f50a0c86240ef57be837c5c3e6ca4f669db3b13e7954700337b0613bdd08b04
       - key: NUMISTA_TREASURY_USER
         value: crown_treasury
       - key: NUMISTA_ADMINS

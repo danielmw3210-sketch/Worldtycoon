@@ -17,8 +17,7 @@ import {
 } from 'lucide-react';
 
 export default function BrowserMinerModal() {
-  const { 
-    isMining, 
+  const { isMining, miningMode, setMiningMode, 
     threads, 
     setThreads, 
     hashrate, 

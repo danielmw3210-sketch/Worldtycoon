@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useGame } from '../context/GameContext';
 export default function BrowserMinerModal() {
-  const { isMining, miningMode, setMiningMode, stratumEndpoint, setStratumEndpoint, stratumStatus, setStratumStatus, startMining, stopMining, user, sessionHeaders, setActiveModal, addToast } = useGame();
+  const { isMining, miningMode, setMiningMode, stratumEndpoint, setStratumEndpoint, stratumStatus, setStratumStatus, startMining, stopMining, user, setActiveModal, addToast } = useGame();
   const [receiveAddr, setReceiveAddr] = useState('');
   const [accountIndex, setAccountIndex] = useState(null);
   const [copied, setCopied] = useState('');
   useEffect(() => {
     let ok = true;
-    fetch('/api/wallet/receive', { headers: sessionHeaders() }).then(r => r.ok ? r.json() : null).then(d => { if (ok && d) { setReceiveAddr(d.address || ''); setAccountIndex(d.accountIndex ?? null); } }).catch(() => {});
+    fetch('/api/wallet/receive?username=' + encodeURIComponent(user?.username || ''), { headers: user?.token ? { Authorization: 'Bearer ' + user.token } : {} }).then(r => r.ok ? r.json() : null).then(d => { if (ok && d) { setReceiveAddr(d.address || ''); setAccountIndex(d.accountIndex ?? null); } }).catch(() => {});
     fetch('/api/mining/stratum/status?username=' + encodeURIComponent(user?.username || '')).then(r => r.ok ? r.json() : null).then(s => { if (ok && s?.connected) { setStratumStatus(s); if (!stratumEndpoint && s.poolHost) setStratumEndpoint(s.poolHost + ':' + s.poolPort); } }).catch(() => {});
     return () => { ok = false; };
   }, [user?.username]);

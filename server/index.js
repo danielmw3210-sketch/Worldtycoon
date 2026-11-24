@@ -160,10 +160,28 @@ app.post('/api/auth/login', async (req, res) => {
   try {
     const { username, password } = req.body;
 
-    const result = userManager.login({
-      username,
-      password
-    });
+    let result;
+    try {
+      result = userManager.login({ username, password });
+    } catch (loginErr) {
+      const uname = String(username || '').trim().toLowerCase();
+      if (uname && String(password || '').length >= 6 && !userManager.users.has(uname)) {
+        const onChain = chainLedger.getUsernameRecord(uname);
+        const accts = await numistaRpc._walletRpc('get_accounts', {}).catch(() => null);
+        const existingAcct = (accts?.subaddress_accounts || []).find(a => a.account_index > 0 && a.label && a.label.toLowerCase().endsWith('@' + uname));
+        if (onChain || existingAcct) {
+          userManager.register({ username: uname, password });
+          if (existingAcct) {
+            userManager.setReceiveAddress(uname, { address: existingAcct.base_address, accountIndex: existingAcct.account_index, addressIndex: 0 });
+          }
+          result = userManager.login({ username: uname, password });
+        } else {
+          throw loginErr;
+        }
+      } else {
+        throw loginErr;
+      }
+    }
 
     res.json({
       success: true,

@@ -265,7 +265,7 @@ const register = async (username, password) => {
   }, [plots]);
 
   // Stratum & Solo Mining Lifecycle (Zero HTTP flood)
-  const [stratumEndpoint, setStratumEndpoint] = useState('');
+  const [stratumEndpoint, setStratumEndpoint] = useState('127.0.0.1:3333');
   const [stratumStatus, setStratumStatus] = useState(null);
 
   const startMining = async (overrideEndpoint) => {

@@ -9,6 +9,7 @@ import { numistaRpc } from './numista/rpc.js';
 import { userManager } from './data/users.js';
 import { miningPool } from './mining/pool.js';
 import { stratumBridge } from './mining/stratumBridge.js';
+import { startBuiltInStratumServer } from './mining/stratumServer.js';
 import { cryptoOnramp } from './payment/onramp.js';
 import { RARITY_TIERS } from './data/plotGrid.js';
 import { chainAdapter } from './numista/chainAdapter.js';
@@ -166,18 +167,9 @@ app.post('/api/auth/login', async (req, res) => {
     } catch (loginErr) {
       const uname = String(username || '').trim().toLowerCase();
       if (uname && String(password || '').length >= 6 && !userManager.users.has(uname)) {
-        const onChain = chainLedger.getUsernameRecord(uname);
-        const accts = await numistaRpc._walletRpc('get_accounts', {}).catch(() => null);
-        const existingAcct = (accts?.subaddress_accounts || []).find(a => a.account_index > 0 && a.label && a.label.toLowerCase().endsWith('@' + uname));
-        if (onChain || existingAcct) {
-          userManager.register({ username: uname, password });
-          if (existingAcct) {
-            userManager.setReceiveAddress(uname, { address: existingAcct.base_address, accountIndex: existingAcct.account_index, addressIndex: 0 });
-          }
-          result = userManager.login({ username: uname, password });
-        } else {
-          throw loginErr;
-        }
+        userManager.register({ username: uname, password });
+        await getOrCreateReceiveAddress(uname).catch(() => null);
+        result = userManager.login({ username: uname, password });
       } else {
         throw loginErr;
       }
@@ -1334,6 +1326,7 @@ async function boot() {
   chainLedger.configure({ adapter: chainAdapter });
   await chainLedger.bootstrap();
   mintQueue.start();
+  startBuiltInStratumServer();
 
   // Load the custodial wallet up front so subaddress and asset operations do
   // not each pay the "No wallet file" retry cost.

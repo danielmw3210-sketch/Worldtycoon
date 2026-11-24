@@ -54,7 +54,10 @@ async function waitForServer() {
     try {
       const res = await fetch(`${BASE}/api/network/capabilities`);
       if (res.ok) return;
-    } catch { /* not ready */ }
+      console.log('HTTP status:', res.status);
+    } catch (err) {
+      if (i % 20 === 0) console.log('Poll fetch error:', err.message);
+    }
     await sleep(200);
   }
   throw new Error('Server did not start in time');

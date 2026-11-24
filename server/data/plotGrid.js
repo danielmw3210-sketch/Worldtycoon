@@ -4,7 +4,7 @@ import { generatePlotNames } from './plotNames.js';
 import { deedAssetId } from './deedRegistry.js';
 
 /**
- * Townforge UK land grid.
+ * Goldnumista UK land grid.
  *
  * The map is divided into a deterministic grid of square plots (50 x 70 = 3,500).
  * Plot rarity and prices are generated from a fixed seed, so the same plots,

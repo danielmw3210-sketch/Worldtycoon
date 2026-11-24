@@ -612,7 +612,8 @@ class ChainAdapter {
 
   async _executeLive(op) {
     const base = {
-      do_not_relay: false,
+      account_index: Number(op.accountIndex) || 0,
+      account_index: Number(op.accountIndex)||0, do_not_relay: false,
       get_tx_key: false,
       get_tx_hex: false
     };

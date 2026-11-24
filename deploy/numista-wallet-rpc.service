@@ -1,0 +1,28 @@
+[Unit]
+Description=Numista Wallet RPC Server (Townforge Treasury & Issuer Custody)
+After=network.target numistad.service
+Requires=numistad.service
+
+[Service]
+Type=simple
+User=numista
+Group=numista
+WorkingDirectory=/var/lib/numista
+ExecStart=/usr/local/bin/monero-wallet-rpc \
+    --numista-testnet \
+    --daemon-address 127.0.0.1:48081 \
+    --rpc-bind-ip 127.0.0.1 \
+    --rpc-bind-port 48083 \
+    --wallet-file /var/lib/numista/wallets/townforge \
+    --password-file /etc/numista/wallet-pass.txt \
+    --rpc-login gameuser:gamepass \
+    --shared-ringdb-dir /var/lib/numista/ringdb \
+    --log-file /var/log/numista/wallet-rpc.log \
+    --max-log-file-size 104857600
+
+Restart=always
+RestartSec=10
+LimitNOFILE=16384
+
+[Install]
+WantedBy=multi-user.target

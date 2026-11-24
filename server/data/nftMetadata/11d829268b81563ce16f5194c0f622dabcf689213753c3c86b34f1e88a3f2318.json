@@ -1,0 +1,34 @@
+{
+  "assetId": "11d829268b81563ce16f5194c0f622dabcf689213753c3c86b34f1e88a3f2318",
+  "metadataHash": "1d5e4cfb51006d46d443695dfad04a25f6cad5102ba2af053ca8ec263bf7eb31",
+  "metadata": {
+    "app": "townforge-numista",
+    "schema": "townforge.numista.deed/v1",
+    "gridVersion": "uk-numista-2026-11-v2",
+    "gridSeed": 20261119,
+    "plotId": "UK-1478",
+    "name": "Flinthurst Rise",
+    "label": "AB-30",
+    "region": "Midlands",
+    "coords": [
+      53.735,
+      -1.941017
+    ],
+    "bounds": [
+      [
+        53.67,
+        -2.052814
+      ],
+      [
+        53.8,
+        -1.829221
+      ]
+    ],
+    "rarity": 1,
+    "rarityKey": "common",
+    "rarityName": "Common",
+    "price": 50,
+    "buildingType": "water_works",
+    "image": "https://townforge.local/deeds/UK-1478.png"
+  }
+}

@@ -13,6 +13,7 @@ import {
   MapPin, 
   Layers, 
   Radio, 
+  Database,
   User, 
   LogOut 
 } from 'lucide-react';
@@ -40,7 +41,7 @@ export default function Navbar() {
           <div>
             <div className="flex items-center space-x-2">
               <span className="font-extrabold tracking-wider text-lg text-white font-mono">
-                TOWN<span className="text-orange-500">FORGE</span>
+                GOLD<span className="text-orange-500">NUMISTA</span>
               </span>
               <span className="text-[10px] uppercase font-bold tracking-widest px-2 py-0.5 rounded-full bg-orange-950/80 border border-orange-600/50 text-orange-400 font-mono">
                 Numista XMR Fork
@@ -64,7 +65,7 @@ export default function Navbar() {
               >
                 <Landmark className="w-3 h-3 mr-1" />
                 Crown Estate Fund: {network.crownEstateFund?.available
-                  ? `${Number(network.crownEstateFund.balance).toFixed(12)} NUM`
+                  ? `${Number(network.crownEstateFund.balance).toFixed(4)} NUM`
                   : 'unavailable'}
                 <span className="ml-1 text-[10px] text-slate-400">
                   +{(network.crownEstateBlockReward ?? 0.0005).toFixed(4)}/block
@@ -93,6 +94,16 @@ export default function Navbar() {
                 {hashrate} H/s
               </span>
             )}
+          </button>
+
+          {/* Explorer Button */}
+          <button
+            onClick={() => setActiveModal('explorer')}
+            className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-[#161d2a] hover:bg-[#1e2738] border border-cyan-800/60 text-cyan-300 hover:text-cyan-200 shadow-sm transition-all"
+            title="Explore live Numista blocks, difficulty, and tx_extra deed proofs"
+          >
+            <Database className="w-3.5 h-3.5 text-cyan-400" />
+            <span className="hidden sm:inline">Explorer</span>
           </button>
 
           {/* Buy Crypto Button */}

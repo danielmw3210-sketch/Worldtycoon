@@ -164,13 +164,13 @@ export default function MapView() {
         tileErrorCount += 1;
         if (tileErrorCount < 3) return;
         const fallbackOrder = ['carto_dark', 'osm_streets', 'esri_satellite', 'opentopo'];
-        const currentKey = localStorage.getItem('townforge_map_style') || mapStyle || 'carto_dark';
+        const currentKey = localStorage.getItem('goldnumista_map_style') || mapStyle || 'carto_dark';
         const idx = Math.max(0, fallbackOrder.indexOf(currentKey));
         const nextKey = fallbackOrder.find((k, i) => i > idx) || fallbackOrder.find(k => k !== currentKey);
         if (!nextKey || !TILE_PROVIDERS[nextKey]) return;
         tileErrorCount = 0;
         setMapStyle(nextKey);
-        localStorage.setItem('townforge_map_style', nextKey);
+        localStorage.setItem('goldnumista_map_style', nextKey);
       });
 
       tileLayerRef.current = tileLayer;
@@ -336,7 +336,7 @@ export default function MapView() {
                   key={key}
                   onClick={() => {
                     setMapStyle(key);
-                    localStorage.setItem('townforge_map_style', key);
+                    localStorage.setItem('goldnumista_map_style', key);
                     setShowLayerMenu(false);
                   }}
                   className={`w-full text-left px-2.5 py-1.5 rounded-lg transition-colors flex items-center justify-between ${

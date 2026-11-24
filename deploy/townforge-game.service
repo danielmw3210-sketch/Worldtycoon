@@ -1,0 +1,21 @@
+[Unit]
+Description=Townforge Numista Game API Backend
+After=network.target numista-wallet-rpc.service
+Requires=numista-wallet-rpc.service
+
+[Service]
+Type=simple
+User=numista
+Group=numista
+WorkingDirectory=/var/www/townforge-numista
+Environment=NODE_ENV=production
+Environment=PORT=3001
+EnvironmentFile=/var/www/townforge-numista/.env
+ExecStart=/usr/bin/node /var/www/townforge-numista/server/index.js
+
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

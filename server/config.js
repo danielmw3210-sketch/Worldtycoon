@@ -28,7 +28,7 @@ export const CONFIG = {
     NAME: "Numista Coin",
     TICKER: "NUM",
     DECIMALS: 12, // Atomic units like Monero piconero (1 NUM = 10^12 atomic units)
-    GAME_FUND_BLOCK_REWARD_NUM: 0.0005,
+    GAME_FUND_BLOCK_REWARD_NUM: Number(process.env.NUMISTA_BLOCK_REWARD || 0.00005),
     BLOCK_TIME_SECS: 120,
     DAEMON_RPC_URL: process.env.NUMISTA_DAEMON_RPC || "http://127.0.0.1:48081",
     // 48082 is the daemon ZMQ port on Numista testnet, NOT wallet RPC.
@@ -81,6 +81,11 @@ export const CONFIG = {
     CURRENCY_ASSET_ID: process.env.NUMISTA_CURRENCY_ASSET_ID || "",
     ISSUER_PUBLIC_KEY: process.env.NUMISTA_ISSUER_PUBLIC_KEY || "3f50a0c86240ef57be837c5c3e6ca4f669db3b13e7954700337b0613bdd08b04",
     ISSUER_WALLET_FILE: process.env.NUMISTA_ISSUER_WALLET || "admin",
+    ISSUER_WALLET_PASSWORD: process.env.NUMISTA_ISSUER_WALLET_PASSWORD || "",
+    // Native coin address that receives block rewards and backs the game
+    // treasury. From the node's miner wallet document.
+    TREASURY_ADDRESS: process.env.NUMISTA_TREASURY_ADDRESS ||
+      "Gt2AXeyZZ6DZn1tpMo6hS77cJ4BBQKTgSRfREqKkBBFcaqbkiEgh4QYMaFg7QfpY8852LfVyRmFfJHZu4CEqFUanCPvZjvN",
     TREASURY_USERNAME: process.env.NUMISTA_TREASURY_USER || "crown_treasury"
   },
 
@@ -97,9 +102,15 @@ export const CONFIG = {
 
   ECONOMY: {
     PLOT_CLAIM_PRICE_NUM: 50, // Base price = rarity tier 1 (Common)
-    TAX_RATE_TOWN_HALL: 0.035, // 3.5%
+    TAX_RATE_TOWN_HALL: 0.035,
+    TRANSFER_NETWORK_FEE_NUM: 0.05, // 3.5%
     BANK_BASE_APY: 0.092, // 9.2%
-    MINING_SHARE_REWARD: 0.05, // NUM rewarded per accepted share
+    TREASURY_BLOCK_REWARD_NUM: Number(process.env.NUMISTA_TREASURY_BLOCK_REWARD || 0.25),
+    MINING_SCHEME: process.env.NUMISTA_MINING_SCHEME || 'PPLNS', // 'PPLNS' or 'PPS'
+    PPLNS_WINDOW_SIZE: Number(process.env.NUMISTA_PPLNS_WINDOW || 1000),
+    MINING_ROUND_REWARD: Number(process.env.NUMISTA_MINING_ROUND_REWARD || 50),
+    MINING_POOL_FEE_RATE: Number(process.env.NUMISTA_MINING_POOL_FEE || 0.02),
+    MINING_SHARE_REWARD: 0.05, // NUM rewarded per accepted share (fallback under PPS)
     MINING_PAYOUT_THRESHOLD: 1, // mining rewards settle on-chain once they reach 1 NUM
     MINING_DIFFICULTY: 16017, // Matches user's live daemon difficulty
     EXCHANGE_RATE_GBP: 0.45,
@@ -107,11 +118,11 @@ export const CONFIG = {
     EXCHANGE_RATE_USDT: 0.58,
 
     // Property economy
-    INCOME_PAYBACK_HOURS: 240, // price / 240 = base income per hour
+    INCOME_PAYBACK_HOURS: 720, // price / 240 = base income per hour
     INCOME_ACCRUAL_CAP_HOURS: 24, // uncollected income caps at 24h
     UPGRADE_MAX_LEVEL: 5,
     UPGRADE_COST_RATE: 0.4, // cost per level = 40% of plot price * current level
-    UPGRADE_INCOME_STEP: 1.5, // income multiplier per level
+    UPGRADE_INCOME_STEP: 1.25, // income multiplier per level
     MINT_FEE_PER_GRAM: {
       gold: 1.25,
       silver: 0.08

@@ -96,6 +96,10 @@ class NumistaRpcBridge {
     this.liveInfo       = null;
 
     this._walletOpened = false;
+    this._walletOpenPromise = null;
+    this._openWalletFile = null;
+    // Serialized wallet-RPC transport queue (see _walletHttpSerialized).
+    this._walletHttpTail = Promise.resolve();
     this._digestNonceStates = new Map();
     this._walletDaemonUrl = null;
     this._walletDaemonSetup = null;
@@ -212,8 +216,29 @@ class NumistaRpcBridge {
     }
   }
 
-  async _walletRpcInternal(method, params = {}, { skipDaemonSetup = false, daemonRetry = false } = {}) {
-    if (!skipDaemonSetup && method !== 'set_daemon') await this._ensureWalletDaemon();
+  /**
+   * Serialize wallet-RPC HTTP calls.
+   *
+   * Epee's digest auth rejects concurrent requests that race on a nonce, which
+   * surfaces as HTTP 401 on one of two parallel calls. The game issues
+   * concurrent wallet reads (balance + transfers, several users at once), so the
+   * transport is queued one request at a time while callers still await
+   * independently.
+   */
+  async _walletHttpSerialized(method, params) {
+    const previous = this._walletHttpTail;
+    let release;
+    this._walletHttpTail = new Promise(resolve => { release = resolve; });
+    await previous.catch(() => { /* previous request failures must not block the queue */ });
+    try {
+      return await this._walletHttp(method, params);
+    } finally {
+      release();
+    }
+  }
+
+  /** One wallet-RPC HTTP round trip, including digest/basic negotiation. */
+  async _walletHttp(method, params) {
     const body = JSON.stringify({ jsonrpc: '2.0', id: '0', method, params });
     const endpoint = `${this.walletUrl}/json_rpc`;
     const credentials = this._walletCredentialCandidates();
@@ -287,12 +312,31 @@ class NumistaRpcBridge {
       throw new Error(`Wallet-RPC HTTP ${res.status}`);
     }
     const json = await res.json();
+    return json;
+  }
+
+  async _walletRpcInternal(method, params = {}, { skipDaemonSetup = false, daemonRetry = false, skipWalletOpen = false } = {}) {
+    if (!skipDaemonSetup && method !== 'set_daemon') await this._ensureWalletDaemon();
+    const json = await this._walletHttpSerialized(method, params);
     if (json.error) {
       const message = json.error.message || 'Wallet-RPC error';
       if (!daemonRetry && method !== 'set_daemon' && /no connection to daemon|failed to connect to daemon/i.test(message)) {
         this._walletDaemonUrl = null;
         await this._ensureWalletDaemon();
-        return this._walletRpcInternal(method, params, { daemonRetry: true });
+        return this._walletRpcInternal(method, params, { daemonRetry: true, skipWalletOpen });
+      }
+      // The wallet RPC can be running without a wallet loaded. Open the
+      // custodial wallet once and retry instead of surfacing "No wallet file".
+      const walletMissing = /no wallet file|no wallet(?: is)? open|wallet (?:file )?not (?:open|loaded)/i.test(message);
+      if (!skipWalletOpen && walletMissing &&
+        method !== 'open_wallet' && method !== 'create_wallet' &&
+        method !== 'generate_from_keys' && method !== 'set_daemon') {
+        await this.ensureWalletOpen();
+        return this._walletRpcInternal(method, params, {
+          skipDaemonSetup,
+          daemonRetry,
+          skipWalletOpen: true
+        });
       }
       throw new Error(`Wallet-RPC error: ${message}`);
     }
@@ -312,11 +356,91 @@ class NumistaRpcBridge {
 
   // ── Wallet open ───────────────────────────────────────────────────────────
 
-  async openWallet(filename = CONFIG.CHAIN.ISSUER_WALLET_FILE, password = '') {
+  /**
+   * Make sure the single custodial wallet is loaded.
+   *
+   * Numista/Monero wallet-RPC keeps exactly one wallet open per process, so the
+   * game uses one issuer wallet and a unique subaddress per username. This has
+   * to run before create_address / balance / transfer calls, otherwise the node
+   * answers "No wallet file".
+   */
+  async ensureWalletOpen({ force = false } = {}) {
+    if (this._walletOpened && !force) {
+      return { opened: true, filename: this._openWalletFile || CONFIG.CHAIN.ISSUER_WALLET_FILE };
+    }
+    if (this._walletOpenPromise) return this._walletOpenPromise;
+
+    this._walletOpenPromise = (async () => {
+      // Probe: if the RPC already has a wallet loaded, leave it alone.
+      try {
+        const info = await this._walletRpcInternal(
+          'get_address',
+          { account_index: 0 },
+          { skipWalletOpen: true, skipDaemonSetup: true }
+        );
+        if (info?.address) {
+          this._walletOpened = true;
+          this._openWalletFile = this._openWalletFile || '(already open)';
+          return { opened: true, filename: this._openWalletFile, alreadyOpen: true };
+        }
+      } catch (err) {
+        // Auth/transport failures must surface; "no wallet" is the case we fix.
+        if (/authentication|HTTP 40\d|rejected|ECONNREFUSED|fetch failed/i.test(err.message || '')) {
+          throw err;
+        }
+      }
+
+      const filename = CONFIG.CHAIN.ISSUER_WALLET_FILE;
+      const password = CONFIG.CHAIN.ISSUER_WALLET_PASSWORD || '';
+
+      try {
+        await this._walletRpcInternal(
+          'open_wallet',
+          { filename, password },
+          { skipWalletOpen: true, skipDaemonSetup: true }
+        );
+        this._walletOpened = true;
+        this._openWalletFile = filename;
+        console.log('[wallet-rpc] Opened custodial wallet:', filename);
+        return { opened: true, filename };
+      } catch (err) {
+        // Only auto-create when the wallet file genuinely does not exist.
+        if (!/file not found|does not exist|cannot open wallet|failed to open/i.test(err.message || '')) {
+          throw new Error(`Custodial wallet could not be opened: ${err.message}`);
+        }
+        try {
+          await this._walletRpcInternal(
+            'create_wallet',
+            { filename, password, language: 'English' },
+            { skipWalletOpen: true, skipDaemonSetup: true }
+          );
+          this._walletOpened = true;
+          this._openWalletFile = filename;
+          console.log('[wallet-rpc] Created custodial wallet:', filename);
+          return { opened: true, filename, created: true };
+        } catch (createErr) {
+          throw new Error(`Custodial wallet "${filename}" is missing and could not be created: ${createErr.message}`);
+        }
+      }
+    })();
+
     try {
-      await this._walletRpc('open_wallet', { filename, password });
+      return await this._walletOpenPromise;
+    } finally {
+      this._walletOpenPromise = null;
+    }
+  }
+
+  async openWallet(filename = CONFIG.CHAIN.ISSUER_WALLET_FILE, password = CONFIG.CHAIN.ISSUER_WALLET_PASSWORD || '') {
+    try {
+      await this._walletRpcInternal(
+        'open_wallet',
+        { filename, password },
+        { skipWalletOpen: true, skipDaemonSetup: true }
+      );
       this.isWalletOnline = true;
       this._walletOpened = true;
+      this._openWalletFile = filename;
       console.log('[wallet-rpc] Opened wallet:', filename);
       return { opened: true, filename };
     } catch (err) {
@@ -469,11 +593,14 @@ class NumistaRpcBridge {
   }
 
   async createSubaddress(label = '', accountIndex = 0) {
+    await this.ensureWalletOpen();
     const result = await this._walletRpc('create_address', { account_index: accountIndex, label });
     return { address: result.address, addressIndex: result.address_index, accountIndex };
   }
 
   async getSubaddressReceiveInfo(accountIndex, addressIndex) {
+    await this.ensureWalletOpen();
+    if (!this._rescannedOnce) { this._rescannedOnce = true; await this._walletRpc('rescan_blockchain', { hard: true }); await this._walletRpc('store'); } else if (!this._lastRefresh || Date.now() - this._lastRefresh > 12000) { this._lastRefresh = Date.now(); await this._walletRpc('refresh'); }
     const [balance, transfers] = await Promise.all([
       this._walletRpc('get_balance', {
         account_index: accountIndex,
@@ -504,9 +631,14 @@ class NumistaRpcBridge {
         timestamp: transfer.timestamp ? new Date(transfer.timestamp * 1000).toISOString() : null
       }));
 
+    // get_balance returns the account total plus a per_subaddress breakdown.
+    // A user's native NUM is the subaddress entry, not the whole wallet.
+    const subaddressBalance = (balance.per_subaddress || [])
+      .find(entry => Number(entry.address_index) === Number(addressIndex));
+
     return {
-      balance: this._toNum(balance.balance),
-      unlockedBalance: this._toNum(balance.unlocked_balance),
+      balance: this._toNum(subaddressBalance ? subaddressBalance.balance : balance.balance),
+      unlockedBalance: this._toNum(subaddressBalance ? subaddressBalance.unlocked_balance : balance.unlocked_balance),
       pendingBalance: this._toNum(balance.unconfirmed_balance),
       incomingTransfers: incoming
     };
@@ -751,6 +883,28 @@ class NumistaRpcBridge {
 
   async sweepAll(address, accountIndex = 0, priority = 1, ringSize = 11) {
     return this._walletRpc('sweep_all', { address, account_index: accountIndex, priority, ring_size: ringSize, get_tx_keys: true });
+  }
+
+  async transferSplit(destinations = [], { accountIndex = 0, priority = 1, ringSize = 16 } = {}) {
+    return this._walletRpc('transfer_split', {
+      destinations: destinations.map(d => ({
+        address: d.address,
+        amount: Math.round(Number(d.amountNum) * 1e12)
+      })),
+      account_index: accountIndex,
+      priority,
+      ring_size: ringSize,
+      get_tx_keys: true,
+      new_algorithm: true
+    });
+  }
+
+  async getIncomingTransfers(accountIndex = 0, transferType = 'available') {
+    return this._walletRpc('incoming_transfers', {
+      transfer_type: transferType,
+      account_index: accountIndex,
+      verbose: true
+    });
   }
 
   async setAccountLabel(accountIndex, label) { return this._walletRpc('label_account', { account_index: accountIndex, label }); }

@@ -373,7 +373,7 @@ export default function PlotDetailsModal() {
                       </button>
                     </div>
                     <div className="mt-2 text-[10px] text-slate-500 font-mono flex justify-between">
-                      <span>+50% income per level · max L{maxLevel}</span>
+                      <span>+25% income per level · max L{maxLevel}</span>
                       <span>Collected all-time: {formatIncome(building.stats?.totalIncomeCollected)} NUM</span>
                     </div>
                   </>
@@ -495,6 +495,18 @@ export default function PlotDetailsModal() {
                 </div>
                 <span className="text-xs font-mono text-slate-400 truncate max-w-[55%]" title={nft.assetId}>
                   {nft.assetId}
+                </span>
+              </div>
+
+              <div className="p-3 rounded-xl bg-amber-950/25 border border-amber-500/30 flex items-center justify-between text-xs font-mono">
+                <span className="text-amber-300 font-semibold">Crown Treasury Fund</span>
+                <span className="text-amber-200">
+                  {network?.crownEstateFund?.available
+                    ? ` NUM`
+                    : '0.0000 NUM'}
+                  <span className="ml-2 text-[10px] text-slate-400">
+                    (+{(network?.crownEstateBlockReward ?? 0.25).toFixed(2)}/block)
+                  </span>
                 </span>
               </div>
 

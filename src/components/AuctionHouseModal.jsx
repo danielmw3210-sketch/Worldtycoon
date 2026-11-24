@@ -85,7 +85,7 @@ export default function AuctionHouseModal() {
             <div>
               <div className="flex items-center space-x-2">
                 <span className="text-[10px] font-mono uppercase font-bold text-purple-400 bg-purple-950 border border-purple-700/60 px-2 py-0.5 rounded">
-                  Townforge Grand Saleroom
+                  Goldnumista Grand Saleroom
                 </span>
                 <span className="text-xs text-slate-400 font-mono">Mayfair & Clyde Clearing Protocol</span>
               </div>

@@ -6,7 +6,7 @@ export function GameProvider({ children }) {
   // Auth & User State
   const [user, setUser] = useState(() => {
     try {
-      const saved = localStorage.getItem('townforge_user');
+      const saved = localStorage.getItem('goldnumista_user');
       return saved ? JSON.parse(saved) : null;
     } catch (e) {
       return null;
@@ -21,7 +21,7 @@ export function GameProvider({ children }) {
 
   // Map Tile Style (CARTO Dark, OSM Standard, Esri Satellite)
   const [mapStyle, setMapStyle] = useState(() => {
-    return localStorage.getItem('townforge_map_style') || 'carto_dark';
+    return localStorage.getItem('goldnumista_map_style') || 'carto_dark';
   });
 
   // User & in-game NUM asset state (native-coin receive data loads in WalletStatus)
@@ -79,43 +79,87 @@ export function GameProvider({ children }) {
 
   // Auth Functions
   const login = async (username, password) => {
-    const res = await fetch('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password })
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Login failed');
+  const res = await fetch('/api/auth/login', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ username, password })
+  });
 
-    const authUser = { username: data.username, role: data.role || 'user', token: data.token };
-    setUser(authUser);
-    localStorage.setItem('townforge_user', JSON.stringify(authUser));
-    await refreshWallet(authUser.username, authUser.token);
-    return data;
+  const data = await res.json();
+
+  if (!res.ok) {
+    throw new Error(data.error || 'Login failed');
+  }
+
+  const authUser = {
+    username: data.username,
+    role: data.role || 'user',
+    token: data.token || ''
   };
 
-  const register = async (username, password) => {
-    const res = await fetch('/api/auth/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password })
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Registration failed');
+  console.log('LOGIN RESPONSE:', data);
+  console.log('AUTH USER:', authUser);
 
-    const authUser = { username: data.username, role: data.role || 'user', token: data.token };
-    setUser(authUser);
-    localStorage.setItem('townforge_user', JSON.stringify(authUser));
+  setUser(authUser);
+
+  localStorage.setItem(
+    'goldnumista_user',
+    JSON.stringify(authUser)
+  );
+
+  if (authUser.token) {
     await refreshWallet(authUser.username, authUser.token);
-    return data;
+  }
+
+  return authUser;
+};
+
+const register = async (username, password) => {
+  const res = await fetch('/api/auth/register', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ username, password })
+  });
+
+  const data = await res.json();
+
+  if (!res.ok) {
+    throw new Error(data.error || 'Registration failed');
+  }
+
+  const authUser = {
+    username: data.username,
+    role: data.role || 'user',
+    token: data.token || ''
   };
+
+  console.log('REGISTER RESPONSE:', data);
+  console.log('AUTH USER:', authUser);
+
+  setUser(authUser);
+
+  localStorage.setItem(
+    'goldnumista_user',
+    JSON.stringify(authUser)
+  );
+
+  if (authUser.token) {
+    await refreshWallet(authUser.username, authUser.token);
+  }
+
+  return authUser;
+};
 
   const logout = () => {
     stopMining();
     setUser(null);
     setWallet({ balance: 0, unlockedBalance: 0, pendingBalance: 0, lockedBalance: 0, totalBalance: 0, recentTransfers: [] });
-    localStorage.removeItem('townforge_user');
-    addToast('Logged out of Townforge', 'info');
+    localStorage.removeItem('goldnumista_user');
+    addToast('Logged out of Goldnumista', 'info');
   };
 
   // Refresh Plots
@@ -190,7 +234,7 @@ export function GameProvider({ children }) {
         if (cancelled || !data?.role) return;
         const next = { ...user, role: data.role };
         setUser(next);
-        localStorage.setItem('townforge_user', JSON.stringify(next));
+        localStorage.setItem('goldnumista_user', JSON.stringify(next));
       })
       .catch(() => {});
     return () => { cancelled = true; };

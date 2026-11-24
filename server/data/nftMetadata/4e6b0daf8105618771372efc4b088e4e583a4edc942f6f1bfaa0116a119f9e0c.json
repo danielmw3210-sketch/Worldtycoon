@@ -1,0 +1,34 @@
+{
+  "assetId": "4e6b0daf8105618771372efc4b088e4e583a4edc942f6f1bfaa0116a119f9e0c",
+  "metadataHash": "d5612bcbc74f86174b3c57e8db2084e9097e4fd498270fbb3d75297b16caad48",
+  "metadata": {
+    "app": "townforge-numista",
+    "schema": "townforge.numista.deed/v1",
+    "gridVersion": "uk-numista-2026-11-v2",
+    "gridSeed": 20261119,
+    "plotId": "UK-0829",
+    "name": "Northcombe Wharf",
+    "label": "AC-17",
+    "region": "Midlands",
+    "coords": [
+      52.045,
+      -1.717424
+    ],
+    "bounds": [
+      [
+        51.98,
+        -1.829221
+      ],
+      [
+        52.11,
+        -1.605627
+      ]
+    ],
+    "rarity": 1,
+    "rarityKey": "common",
+    "rarityName": "Common",
+    "price": 50,
+    "buildingType": "cottage",
+    "image": "https://townforge.local/deeds/UK-0829.png"
+  }
+}

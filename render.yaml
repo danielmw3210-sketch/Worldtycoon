@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: goldnumista
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: node server/index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NUMISTA_CHAIN_MODE
+        value: live
+      - key: NUMISTA_DAEMON_RPC_URL
+        sync: false
+      - key: NUMISTA_WALLET_RPC_URL
+        sync: false
+      - key: NUMISTA_WALLET_RPC_USER
+        sync: false
+      - key: NUMISTA_WALLET_RPC_PASS
+        sync: false
+      - key: NUMISTA_ISSUER_PUBLIC_KEY
+        value: 01d74e78073d0b5a4d7c27c6b0aa43281d7db53766467a8a316420b4c14e2e06
+      - key: NUMISTA_TREASURY_USER
+        value: crown_treasury
+      - key: NUMISTA_ADMINS
+        value: danie,d4kkkkkkkkkkkkkkkkkk

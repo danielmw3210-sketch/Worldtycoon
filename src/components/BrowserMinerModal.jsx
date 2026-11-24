@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useGame } from '../context/GameContext';
 import { 
   Pickaxe, 
@@ -10,7 +10,10 @@ import {
   Flame, 
   Sliders, 
   ShieldCheck, 
-  RotateCcw 
+  RotateCcw,
+  Layers,
+  Award,
+  Radio
 } from 'lucide-react';
 
 export default function BrowserMinerModal() {
@@ -30,7 +33,30 @@ export default function BrowserMinerModal() {
     setActiveModal
   } = useGame();
 
+  const [poolStats, setPoolStats] = useState(null);
   const maxCores = navigator.hardwareConcurrency || 8;
+
+  useEffect(() => {
+    let mounted = true;
+    const fetchStats = async () => {
+      try {
+        const username = user?.username ? encodeURIComponent(user.username) : '';
+        const res = await fetch(`/api/mining/stats?username=${username}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (mounted) setPoolStats(data);
+        }
+      } catch {
+        // Non-critical
+      }
+    };
+    fetchStats();
+    const interval = setInterval(fetchStats, 3000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, [user?.username]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn">
@@ -180,24 +206,66 @@ export default function BrowserMinerModal() {
 
           </div>
 
-          {/* Details & Live Wallet Sync */}
-          <div className="p-4 rounded-xl bg-slate-900/50 border border-slate-800 text-xs space-y-2">
-            <div className="flex items-center justify-between text-slate-400">
-              <span>Payout Account:</span>
-              <span className="font-mono text-white truncate max-w-[280px]">
-                @{user?.username || 'guest'}
+          {/* PPLNS Mining Pool Telemetry */}
+          <div className="p-4 rounded-xl bg-slate-900/60 border border-orange-500/20 text-xs space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-slate-400 flex items-center space-x-1.5">
+                <Layers className="w-3.5 h-3.5 text-orange-400" />
+                <span>Pool Scheme:</span>
+              </span>
+              <span className="font-mono font-bold text-orange-400 bg-orange-950/80 px-2 py-0.5 rounded border border-orange-800/50">
+                {poolStats?.scheme || 'PPLNS'} (Pay-Per-Last-N-Shares)
               </span>
             </div>
+
             <div className="flex items-center justify-between text-slate-400">
-              <span>Reward per Share:</span>
-              <span className="font-mono text-emerald-400 font-semibold">
-                +0.0500 NUM (mints on-chain)
+              <span>PPLNS Rolling Window:</span>
+              <span className="font-mono text-slate-200">
+                {poolStats?.sharesInWindow ?? 0} / {poolStats?.pplnsWindowSize ?? 1000} shares
               </span>
             </div>
-            <div className="flex items-center justify-between text-slate-400">
-              <span>Total Hashes Computed:</span>
+
+            <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+              <div 
+                className="bg-gradient-to-r from-orange-500 to-amber-400 h-full transition-all duration-500"
+                style={{ width: `${Math.min(100, ((poolStats?.sharesInWindow || 0) / (poolStats?.pplnsWindowSize || 1000)) * 100)}%` }}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-800/80">
+              <div className="flex items-center justify-between text-slate-400">
+                <span>Your Pool Share:</span>
+                <span className="font-mono font-bold text-amber-300">
+                  {poolStats?.userPplns?.sharePct ?? 0}%
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-slate-400">
+                <span>Est. Round Payout:</span>
+                <span className="font-mono font-bold text-emerald-400">
+                  ~{poolStats?.userPplns?.estimatedBlockPayout ?? 0} NUM
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between text-slate-400 pt-1 border-t border-slate-800/60">
+              <span className="flex items-center space-x-1">
+                <Award className="w-3.5 h-3.5 text-amber-400" />
+                <span>Round Bounty:</span>
+              </span>
               <span className="font-mono text-white">
-                {totalHashes.toLocaleString()}
+                {poolStats?.expectedBlockReward ?? 50} NUM ({poolStats?.blocksFound ?? 0} blocks solved)
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between text-slate-400 pt-1 border-t border-slate-800/60">
+              <span className="flex items-center space-x-1">
+                <Radio className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Native Blockchain:</span>
+              </span>
+              <span className="font-mono text-cyan-300">
+                {poolStats?.connectedToNativeDaemon 
+                  ? `Live Template (Height #${poolStats.nativeHeight})` 
+                  : 'Daemon Standby'}
               </span>
             </div>
           </div>

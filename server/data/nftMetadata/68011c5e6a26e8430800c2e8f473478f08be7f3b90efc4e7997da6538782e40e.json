@@ -1,0 +1,34 @@
+{
+  "assetId": "68011c5e6a26e8430800c2e8f473478f08be7f3b90efc4e7997da6538782e40e",
+  "metadataHash": "b1e7889e707c8039b4c129663a347fd109ebf92e012bf911b3d330d83c9a1f44",
+  "metadata": {
+    "app": "townforge-numista",
+    "schema": "townforge.numista.deed/v1",
+    "gridVersion": "uk-numista-2026-11-v2",
+    "gridSeed": 20261119,
+    "plotId": "UK-1022",
+    "name": "Elderford Common",
+    "label": "V-21",
+    "region": "Wales",
+    "coords": [
+      52.565,
+      -3.282576
+    ],
+    "bounds": [
+      [
+        52.5,
+        -3.394373
+      ],
+      [
+        52.63,
+        -3.170779
+      ]
+    ],
+    "rarity": 1,
+    "rarityKey": "common",
+    "rarityName": "Common",
+    "price": 50,
+    "buildingType": "fishery",
+    "image": "https://townforge.local/deeds/UK-1022.png"
+  }
+}

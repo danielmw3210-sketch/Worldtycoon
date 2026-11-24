@@ -1,0 +1,34 @@
+{
+  "assetId": "91d45726fa79e7c3c1ab5165b93ffd3bfbfc5b83fa7c86e2f8f88a793551b71f",
+  "metadataHash": "24a4456a5f3a0f0dd294c90b622bd89bd63bb8a7a2682f577575a5de4e79b605",
+  "metadata": {
+    "app": "townforge-numista",
+    "schema": "townforge.numista.deed/v1",
+    "gridVersion": "uk-numista-2026-11-v2",
+    "gridSeed": 20261119,
+    "plotId": "UK-1632",
+    "name": "Ridgate Bank",
+    "label": "AF-33",
+    "region": "North East England",
+    "coords": [
+      54.125,
+      -1.046645
+    ],
+    "bounds": [
+      [
+        54.06,
+        -1.158441
+      ],
+      [
+        54.19,
+        -0.934848
+      ]
+    ],
+    "rarity": 1,
+    "rarityKey": "common",
+    "rarityName": "Common",
+    "price": 50,
+    "buildingType": "fishery",
+    "image": "https://townforge.local/deeds/UK-1632.png"
+  }
+}

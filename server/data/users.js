@@ -53,7 +53,10 @@ class UserManager {
           wallet: user.wallet && typeof user.wallet === 'object'
             ? { ...this._emptyWallet(), ...user.wallet, transfers: Array.isArray(user.wallet.transfers) ? user.wallet.transfers : [] }
             : this._emptyWallet(),
-          receiveAddress: this._normalizeReceiveAddress(user.receiveAddress)
+          receiveAddress: this._normalizeReceiveAddress(user.receiveAddress),
+          chainIdentity: ['pending', 'registered', 'failed'].includes(user.chainIdentity)
+            ? user.chainIdentity
+            : 'unregistered'
         });
       });
       if (repaired) this.save();
@@ -138,7 +141,8 @@ class UserManager {
       role: CONFIG.ADMIN_USERS.includes(cleanUser) ? 'admin' : 'user',
       createdAt: new Date().toISOString(),
       wallet: this._emptyWallet(),
-      receiveAddress: null
+      receiveAddress: null,
+      chainIdentity: 'unregistered'
     };
 
     this.users.set(cleanUser, record);
@@ -216,6 +220,37 @@ class UserManager {
       this.save();
     }
     return user.receiveAddress;
+  }
+
+  setChainIdentity(username, status) {
+    const user = this.getUser(username);
+    if (!user) return null;
+    if (!['unregistered', 'pending', 'registered', 'failed'].includes(status)) {
+      throw new Error('Invalid chain identity status');
+    }
+    user.chainIdentity = status;
+    this.save();
+    return user;
+  }
+
+  findByAddressIndex(accountIndex, addressIndex) {
+    for (const user of this.users.values()) {
+      const addr = user.receiveAddress;
+      if (!addr) continue;
+      if (addr.accountIndex === Number(accountIndex) && addr.addressIndex === Number(addressIndex)) {
+        return user;
+      }
+    }
+    return null;
+  }
+
+  findByAddress(address) {
+    const value = String(address || '').trim();
+    if (!value) return null;
+    for (const user of this.users.values()) {
+      if (user.receiveAddress?.address === value) return user;
+    }
+    return null;
   }
 
   allUsernames() {

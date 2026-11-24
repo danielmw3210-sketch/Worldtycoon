@@ -18,82 +18,118 @@ export default function WalletStatus() {
   const [recipient, setRecipient] = useState('');
   const [amount, setAmount] = useState('');
   const [sending, setSending] = useState(false);
+  const [withdrawAddress, setWithdrawAddress] = useState('');
+  const [withdrawAmount, setWithdrawAmount] = useState('');
+  const [withdrawing, setWithdrawing] = useState(false);
   const [receiveInfo, setReceiveInfo] = useState(null);
   const [receiveError, setReceiveError] = useState('');
   const [copiedAddress, setCopiedAddress] = useState(false);
 
   useEffect(() => {
-    if (!user?.username) return undefined;
-    let cancelled = false;
+  if (!user?.username) return;
 
-    const refreshReceiveInfo = async () => {
-      try {
-        const res = await fetch(`/api/wallet/receive?username=${encodeURIComponent(user.username)}`, {
-          headers: { Authorization: `Bearer ${user.token}` }
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Unable to load receive address');
-        if (!cancelled) {
-          setReceiveInfo(data);
-          setReceiveError('');
-        }
-      } catch (err) {
-        if (!cancelled) setReceiveError(err.message);
-      }
-    };
+  let cancelled = false;
 
-    refreshReceiveInfo();
-    const interval = setInterval(refreshReceiveInfo, 15000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [user?.username]);
-
-  const copyReceiveAddress = async () => {
+  const refreshReceiveInfo = async () => {
     try {
-      await navigator.clipboard.writeText(receiveInfo.address);
-      setCopiedAddress(true);
-      setTimeout(() => setCopiedAddress(false), 2000);
+      const res = await fetch(
+        `/api/wallet/receive?username=${encodeURIComponent(user.username)}`,
+        {
+          headers: {
+            Authorization: `Bearer ${user?.token || ''}`
+          }
+        }
+      );
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Unable to load receive address');
+      }
+
+      if (!cancelled) {
+        setReceiveInfo(data);
+        setReceiveError('');
+      }
     } catch (err) {
-      addToast(`Could not copy address: ${err.message}`, 'error');
+      if (!cancelled) {
+        setReceiveError(err.message || 'Failed to load receive address');
+      }
     }
   };
 
-  const handleSend = async () => {
-    const val = parseFloat(amount);
-    const to = recipient.replace(/^@/, '').trim().toLowerCase();
-    if (!val || val <= 0) return addToast('Enter a valid transfer amount', 'error');
-    if (!to) return addToast('Enter a recipient username', 'error');
+  refreshReceiveInfo();
 
+  const interval = setInterval(refreshReceiveInfo, 15000);
+
+  return () => {
+    cancelled = true;
+    clearInterval(interval);
+  };
+}, [user?.username, user?.token]);
+
+const copyReceiveAddress = async () => {
+  try {
+    if (!receiveInfo?.address) return;
+
+    await navigator.clipboard.writeText(receiveInfo.address);
+
+    setCopiedAddress(true);
+
+    setTimeout(() => {
+      setCopiedAddress(false);
+    }, 2000);
+  } catch (err) {
+    addToast(`Could not copy address: ${err.message}`, 'error');
+  }
+};
+
+
+  const handleWithdraw = async () => {
     try {
-      setSending(true);
-      const res = await fetch('/api/wallet/transfer', {
+      setWithdrawing(true);
+      const res = await fetch('/api/wallet/withdraw', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${user?.token || ''}`
         },
-        body: JSON.stringify({ toUsername: to, amount: val })
+        body: JSON.stringify({ toAddress: withdrawAddress.trim(), amount: Number(withdrawAmount) })
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-
-      addToast(`${val} NUM to @${to} queued — confirms after ${data.job?.requiredConfirmations || 10} blocks`, 'success');
-      setRecipient('');
-      setAmount('');
+      if (!res.ok) throw new Error(data.error || 'Withdrawal failed');
+      addToast(`Withdrew ${data.netNative} native NUM (TX: ${data.txHash.slice(0, 12)}...)`, 'success');
+      setWithdrawAmount('');
+      if (refreshWallet) await refreshWallet();
       setActiveTab('overview');
-      await refreshWallet();
     } catch (err) {
       addToast(err.message, 'error');
     } finally {
-      setSending(false);
+      setWithdrawing(false);
     }
   };
 
-  const balance = wallet?.balance ?? 0;
-  const pending = wallet?.pendingBalance ?? 0;
-  const locked = wallet?.lockedBalance ?? 0;
+const [convertAmount, setConvertAmount] = useState('');
+  const [converting, setConverting] = useState(false);
+  const handleConvertToGame = async () => {
+    try {
+      setConverting(true);
+      const res = await fetch('/api/wallet/convert-to-game', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (user?.token || '') },
+        body: JSON.stringify({ amount: Number(convertAmount) })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Conversion failed');
+      addToast('Converted ' + data.amount + ' native NUM to in-game NUM (0.05 NUM fee paid)', 'success');
+      setConvertAmount('');
+      if (refreshWallet) await refreshWallet();
+      setActiveTab('overview');
+    } catch (err) { addToast(err.message, 'error'); } finally { setConverting(false); }
+  };
+const balance = wallet?.balance ?? 0;
+const pending = wallet?.pendingBalance ?? 0;
+const locked = wallet?.lockedBalance ?? 0;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn">
@@ -130,7 +166,8 @@ export default function WalletStatus() {
         <div className="px-6 pt-4 flex space-x-2 border-b border-slate-800 bg-slate-900/40">
           {[
             { id: 'overview', label: 'Wallet Overview' },
-            { id: 'send', label: 'Send NUM' }
+            { id: 'send', label: 'Send NUM' },{ id: 'convert', label: 'Convert Native' },
+            { id: 'withdraw', label: 'Withdraw Native' }
           ].map(t => (
             <button
               key={t.id}
@@ -303,7 +340,26 @@ export default function WalletStatus() {
           )}
 
           {/* Send Transfer Tab */}
-          {activeTab === 'send' && (
+          {activeTab === 'convert' && (
+            <div className="space-y-4">
+              <div className="p-4 rounded-xl bg-slate-900/80 border border-slate-800 space-y-3">
+                <div className="flex justify-between text-xs font-mono">
+                  <span className="text-slate-400">Native NUM (Account #+receiveInfo?.accountIndex):</span>
+                  <span className="text-emerald-400 font-bold">{Number(receiveInfo?.unlockedBalance || 0).toFixed(4)} NUM unlocked</span>
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Amount to Convert to In-Game NUM</label>
+                  <input type="number" placeholder="10.00" value={convertAmount} onChange={(e) => setConvertAmount(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 font-mono text-base text-white" />
+                </div>
+                <div className="pt-2 border-t border-slate-800 text-[11px] font-mono space-y-1">
+                  <div className="flex justify-between text-slate-400"><span>Goldnumista Protocol Fee:</span><span>0.0500 Native NUM + Gas</span></div>
+                  <div className="flex justify-between text-orange-400 font-bold"><span>In-Game NUM Credited:</span><span>{Number(convertAmount || 0).toFixed(4)} NUM</span></div>
+                </div>
+              </div>
+              <button onClick={handleConvertToGame} disabled={converting || Number(convertAmount) < 0.1} className="w-full py-3 rounded-xl bg-gradient-to-r from-orange-600 to-amber-600 text-white font-bold text-xs">{converting ? 'Converting On-Chain...' : 'Convert to In-Game NUM'}</button>
+            </div>
+          )}
+{activeTab === 'send' && (
             <div className="space-y-4">
               <div className="p-4 rounded-xl bg-slate-900/80 border border-slate-800 space-y-3">
                 <div>
@@ -350,6 +406,69 @@ export default function WalletStatus() {
               >
                 <Send className="w-4 h-4" />
                 <span>{sending ? 'Broadcasting Transfer...' : `Send ${amount || 0} NUM`}</span>
+              </button>
+            </div>
+          )}
+
+          {/* Withdraw to Native NUM Tab */}
+          {activeTab === 'withdraw' && (
+            <div className="space-y-4">
+              <div className="p-4 rounded-xl bg-slate-900/80 border border-slate-800 space-y-3">
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Destination Numista Address:</label>
+                  <input
+                    type="text"
+                    placeholder="Sb... or UGL..."
+                    value={withdrawAddress}
+                    onChange={(e) => setWithdrawAddress(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 font-mono text-xs text-white focus:outline-none focus:border-emerald-500"
+                  />
+                  <p className="text-[10px] text-slate-500 font-mono mt-1">
+                    Converts in-game NUM back to native coin on-chain (0.0500 NUM Crown/network fee).
+                  </p>
+                </div>
+
+                <div>
+                  <div className="flex justify-between text-xs text-slate-400 mb-1">
+                    <span>Withdraw Amount (NUM):</span>
+                    <span className="font-mono">Available: {balance.toFixed(4)} NUM</span>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      placeholder="0.20"
+                      value={withdrawAmount}
+                      onChange={(e) => setWithdrawAmount(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 font-mono text-base text-white focus:outline-none focus:border-emerald-500"
+                    />
+                    <button
+                      onClick={() => setWithdrawAmount(balance.toString())}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 px-2 py-0.5 rounded bg-slate-800 text-[10px] font-mono text-emerald-400"
+                    >
+                      MAX
+                    </button>
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-slate-800 text-[11px] font-mono space-y-1">
+                  <div className="flex justify-between text-slate-400">
+                    <span>Crown / Network Fee:</span>
+                    <span>0.0500 NUM</span>
+                  </div>
+                  <div className="flex justify-between text-emerald-400 font-bold">
+                    <span>Net Native Coin Sent:</span>
+                    <span>{Math.max(0, Number(withdrawAmount || 0) - 0.05).toFixed(4)} NUM</span>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                onClick={handleWithdraw}
+                disabled={withdrawing || !withdrawAddress || Number(withdrawAmount) < 0.2 || Number(withdrawAmount) > balance}
+                className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-40 text-white font-bold text-xs shadow-xl shadow-emerald-700/20 transition-all flex items-center justify-center space-x-2"
+              >
+                <ArrowUpRight className="w-4 h-4" />
+                <span>{withdrawing ? 'Sending Native NUM...' : ('Withdraw ' + Math.max(0, Number(withdrawAmount || 0) - 0.05).toFixed(4) + ' Native NUM')}</span>
               </button>
             </div>
           )}

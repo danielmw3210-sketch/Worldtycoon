@@ -1,3 +1,5 @@
+import { mintQueue } from '../numista/mintQueue.js';
+import { CURRENCY_ASSET_TYPE, toUnits } from '../data/deedRegistry.js';
 /**
  * Chain ledger
  * ─────────────────────────────────────────────────────────────────────────────
@@ -59,6 +61,7 @@ class ChainLedger {
         bootstrapped: !!raw.bootstrapped,
         balances,
         usernames: raw.usernames || {},
+        lastTreasuryHeight: Number(raw.lastTreasuryHeight) || 0,
         txs: Array.isArray(raw.txs) ? raw.txs : []
       };
     } catch (err) {
@@ -348,6 +351,54 @@ class ChainLedger {
       console.warn(`[ledger] Reconciled ${mismatches.length} balance mismatch(es)`);
       this.save();
     }
+    // Mint per-block Crown Treasury NUM reward as new blocks settle
+    const blockRate = Number(CONFIG.ECONOMY.TREASURY_BLOCK_REWARD_NUM) || 0;
+    if (caps.mode === 'live' && blockRate > 0) {
+      try {
+        const tip = await this.adapter.getHeight();
+        const settledHeight = Math.max(0, tip - (Number(CONFIG.CHAIN.CONFIRMATIONS) || 10));
+        if (!this.state.lastTreasuryHeight) {
+          this.state.lastTreasuryHeight = settledHeight;
+          this.save();
+        } else if (settledHeight > this.state.lastTreasuryHeight) {
+          const treasuryUser = CONFIG.CHAIN.TREASURY_USERNAME;
+          const activeTreasuryJob = mintQueue.jobs.some(j => j.type === 'treasury_block_reward');
+          const assetExists = await this.adapter.getAsset(NUM_ASSET_ID);
+          const treasuryRegistered = this.getUsernameRecord(treasuryUser) || await this.adapter.getUsernameKey(treasuryUser);
+          if (!activeTreasuryJob && assetExists && treasuryRegistered) {
+            const fromHeight = this.state.lastTreasuryHeight + 1;
+            const blocksMined = settledHeight - this.state.lastTreasuryHeight;
+            const reward = round(blocksMined * blockRate);
+            if (reward > 0) {
+              this.state.lastTreasuryHeight = settledHeight;
+              this.addPending(treasuryUser, reward);
+              this.save();
+              mintQueue.enqueue({
+                type: 'treasury_block_reward',
+                username: treasuryUser,
+                assetId: NUM_ASSET_ID,
+                snapshot: { amount: reward, fromHeight, toHeight: settledHeight, blocksMined },
+                meta: { name: `Crown Treasury block reward (#${fromHeight}-#${settledHeight})` },
+                steps: [{
+                  key: 'mint',
+                  label: `Mint ${reward} NUM block reward (${blocksMined} block(s)) to @${treasuryUser}`,
+                  operation: {
+                    kind: 'mint',
+                    assetId: NUM_ASSET_ID,
+                    assetType: CURRENCY_ASSET_TYPE,
+                    recipient: treasuryUser,
+                    amountUnits: toUnits(reward)
+                  }
+                }]
+              });
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[ledger] Treasury block reward check failed:', err.message);
+      }
+    }
+
     return { checked: usernames.size, mismatches };
   }
 

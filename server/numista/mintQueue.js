@@ -226,6 +226,14 @@ class MintQueue {
           if (!step.compensation) job.status = 'confirming';
           job.updatedAt = nowIso();
         } catch (err) {
+          const isTransient = /not enough unlocked money|daemon unreachable|timed out|busy|ECONNREFUSED/i.test(err.message || '');
+          if (isTransient && (step.attempts || 0) < 20) {
+            step.attempts = (step.attempts || 0) + 1;
+            step.lastTransientError = err.message;
+            step.error = `Waiting for wallet outputs to unlock: ${err.message} (attempt ${step.attempts}/20)`;
+            this._saveSoon();
+            return;
+          }
           step.status = 'failed';
           step.error = err.message;
           await this._handleFailure(job, err.message);
@@ -250,12 +258,25 @@ class MintQueue {
           return; // wait for the next tick to continue the chain
         }
 
-        if (status.status === 'failed' || status.status === 'dropped') {
+        if (status.status === 'dropped') {
+          step.mempoolRetries = (step.mempoolRetries || 0) + 1;
+          if (step.mempoolRetries <= 3) {
+            console.log(`[mintQueue] Tx ${step.txHash} dropped from mempool, retrying submission (attempt ${step.mempoolRetries}/3)`);
+            step.status = 'pending';
+            step.txHash = null;
+            step.error = 'Transaction was dropped from the mempool, retrying...';
+            this._saveSoon();
+            return;
+          }
           step.status = 'failed';
-          step.error = status.error ||
-            (status.status === 'dropped'
-              ? 'Transaction was dropped from the mempool'
-              : 'Transaction failed on-chain');
+          step.error = 'Transaction was dropped from the mempool after 3 submission attempts';
+          await this._handleFailure(job, step.error);
+          return;
+        }
+
+        if (status.status === 'failed') {
+          step.status = 'failed';
+          step.error = status.error || 'Transaction failed on-chain';
           await this._handleFailure(job, step.error);
           return;
         }

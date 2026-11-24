@@ -64,7 +64,7 @@ export default function AuthModal({ onLoginSuccess }) {
             <Coins className="w-8 h-8 text-white" />
           </div>
           <h2 className="text-2xl font-black font-mono tracking-wider text-white">
-            TOWN<span className="text-orange-500">FORGE</span>
+            GOLD<span className="text-orange-500">NUMISTA</span>
           </h2>
           <p className="text-xs text-slate-400 font-mono mt-1">
             Numista Coin Monero Fork • UK Economic Land Registry

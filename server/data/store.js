@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -11,8 +12,8 @@ import {
 } from './plotGrid.js';
 import { CONFIG } from '../config.js';
 import { mintQueue } from '../numista/mintQueue.js';
-import { userManager } from './users.js';
 import { chainLedger } from './chainLedger.js';
+import { userManager } from './users.js';
 import {
   NUM_ASSET_ID,
   CURRENCY_ASSET_TYPE,
@@ -381,7 +382,7 @@ class GameStore {
     const building = {
       type: rolled.key,
       category: rolled.category,
-      name: `${rolled.name} · ${plot.label}`,
+      name: `${rolled.name} Â· ${plot.label}`,
       level: 1,
       description: rolled.description,
       adminOnly: !!rolled.adminOnly,
@@ -429,7 +430,8 @@ class GameStore {
           key: 'payment',
           label: `Pay ${cost.toLocaleString()} NUM deed price`,
           operation: {
-            kind: 'transfer',
+          accountIndex: userManager.getUser(username)?.receiveAddress?.accountIndex || 0,
+          kind: 'transfer',
             assetId: NUM_ASSET_ID,
             assetType: CURRENCY_ASSET_TYPE,
             from: cleanUsername,
@@ -449,7 +451,8 @@ class GameStore {
           key: 'create',
           label: 'Create deed asset (collectible, cap 1)',
           operation: {
-            kind: 'create_asset',
+          accountIndex: userManager.getUser(username)?.receiveAddress?.accountIndex || 0,
+          kind: 'create_asset',
             assetId,
             assetType: DEED_ASSET_TYPE,
             maxSupply: 1,
@@ -461,7 +464,8 @@ class GameStore {
           key: 'mint',
           label: 'Mint deed to owner',
           operation: {
-            kind: 'mint',
+          accountIndex: userManager.getUser(username)?.receiveAddress?.accountIndex || 0,
+          kind: 'mint',
             assetId,
             assetType: DEED_ASSET_TYPE,
             recipient: cleanUsername,
@@ -521,7 +525,7 @@ class GameStore {
     const plot = this.getPlotById(plotId);
     if (!plot || !plot.isClaimed) throw new Error("Plot is not claimed yet");
     if (plot.nftState?.stage === 'pending') {
-      throw new Error("This deed is still confirming — income collection unlocks once it is on-chain");
+      throw new Error("This deed is still confirming â€” income collection unlocks once it is on-chain");
     }
     if ((plot.owner || '').toLowerCase() !== (username || '').toLowerCase()) {
       throw new Error("Only the deed owner can collect this property's income");
@@ -534,7 +538,7 @@ class GameStore {
 
     const stats = building.stats || (building.stats = {});
     const accrued = Number(stats.accruedIncome) || 0;
-    if (accrued <= 0.0001) throw new Error("No income accrued yet — check back shortly");
+    if (accrued <= 0.0001) throw new Error("No income accrued yet â€” check back shortly");
 
     let multiplier = 1;
     if (building.variableYield) {
@@ -566,8 +570,6 @@ class GameStore {
       meta: { plotId: plot.id, name: plot.name, building: building.name }
     });
 
-    chainLedger.addPending(clean, amount);
-    stats.accruedIncome = 0;
     this.scheduleSave();
 
     return {
@@ -578,7 +580,7 @@ class GameStore {
       job: mintQueue.publicJob(job),
       plot,
       walletBalance: chainLedger.getBalance(clean).available,
-      message: `Collecting ${amount.toLocaleString()} NUM — it settles after ${REQUIRED_CONFIRMATIONS} blocks`
+      message: `Collecting ${amount.toLocaleString()} NUM â€” it settles after ${REQUIRED_CONFIRMATIONS} blocks`
     };
   }
 
@@ -623,11 +625,13 @@ class GameStore {
       snapshot,
       meta: { name: plot.name, level: building.level },
       steps: [
+        ...this._registrationSteps([clean]),
         {
           key: 'payment',
           label: `Pay ${cost.toLocaleString()} NUM upgrade`,
           operation: {
-            kind: 'transfer',
+          accountIndex: userManager.getUser(username)?.receiveAddress?.accountIndex || 0,
+          kind: 'transfer',
             assetId: NUM_ASSET_ID,
             assetType: CURRENCY_ASSET_TYPE,
             from: clean,
@@ -705,7 +709,7 @@ class GameStore {
       from: payer,
       to: recipient,
       amount: fee,
-      description: `Minting fee · ${weight}g ${metal} at ${mint.label}`,
+      description: `Minting fee Â· ${weight}g ${metal} at ${mint.label}`,
       snapshot: { coin }
     });
     return { pending: true, coin, job: mintQueue.publicJob(job) };
@@ -802,7 +806,8 @@ class GameStore {
           key: 'transfer',
           label: description,
           operation: {
-            kind: 'transfer',
+          accountIndex: userManager.getUser(username)?.receiveAddress?.accountIndex || 0,
+          kind: 'transfer',
             assetId: NUM_ASSET_ID,
             assetType: CURRENCY_ASSET_TYPE,
             from,
@@ -839,9 +844,10 @@ class GameStore {
         key: `register_${username}`,
         label: `Register @${username} on-chain`,
         operation: {
+          accountIndex: userManager.getUser(username)?.receiveAddress?.accountIndex || 0,
           kind: 'register_username',
           username,
-          key: CONFIG.CHAIN.ISSUER_PUBLIC_KEY
+          key: crypto.generateKeyPairSync('ed25519').publicKey.export({ type: 'spki', format: 'der' }).subarray(-32).toString('hex')
         },
         compensate: null
       };
@@ -957,7 +963,8 @@ class GameStore {
       key: 'refund_previous_bid',
       label: `Refund ${refundAmount} NUM to @${previousBidder}`,
       operation: {
-        kind: 'transfer',
+          accountIndex: userManager.getUser(username)?.receiveAddress?.accountIndex || 0,
+          kind: 'transfer',
         assetId: NUM_ASSET_ID,
         assetType: CURRENCY_ASSET_TYPE,
         from: TREASURY,
@@ -1108,35 +1115,14 @@ class GameStore {
       throw new Error('Insufficient balance');
     }
 
-    chainLedger.lock(from, value);
-
-    const job = mintQueue.enqueue({
+    const job = this._enqueueNumTransfer({
       type: 'transfer',
-      username: from,
-      assetId: NUM_ASSET_ID,
-      requiredConfirmations: REQUIRED_CONFIRMATIONS,
+      from,
+      to,
+      amount: value,
+      description: `Transfer ${value} NUM to @${to}`,
       snapshot: { amount: value, to, from },
-      meta: { name: `@${from} → @${to}` },
-      steps: [{
-        key: 'transfer',
-        label: `Transfer ${value} NUM to @${to}`,
-        operation: {
-          kind: 'transfer',
-          assetId: NUM_ASSET_ID,
-          assetType: CURRENCY_ASSET_TYPE,
-          from,
-          to,
-          amountUnits: toUnits(value)
-        },
-        compensate: {
-          kind: 'transfer',
-          assetId: NUM_ASSET_ID,
-          assetType: CURRENCY_ASSET_TYPE,
-          from: to,
-          to: from,
-          amountUnits: toUnits(value)
-        }
-      }]
+      meta: { name: `@${from} â†’ @${to}` }
     });
 
     return {
@@ -1165,6 +1151,42 @@ class GameStore {
     const found = key => job.steps.find(s => s.key === key && !s.compensation);
 
     try {
+      if (job.type === 'treasury_block_reward') {
+        const amount = Number(job.snapshot?.amount) || 0;
+        const mintStep = found('mint');
+        chainLedger.dropPending(username, amount);
+        chainLedger.receiveChain(username, amount);
+        chainLedger.recordChainMove({
+          username,
+          amount,
+          description: `Block reward (#${job.snapshot?.fromHeight}-#${job.snapshot?.toHeight})`,
+          txHash: mintStep?.txHash,
+          height: mintStep?.confirmedHeight,
+          jobId: job.id,
+          assetId: job.assetId
+        });
+        this.scheduleSave();
+        return;
+      }
+
+      if (job.type === 'deposit') {
+        const amount = Number(job.snapshot?.amount) || 0;
+        const mintStep = found('mint');
+        chainLedger.dropPending(username, amount);
+        chainLedger.receiveChain(username, amount);
+        chainLedger.recordChainMove({
+          username,
+          amount,
+          description: `Native NUM deposit settled (${job.snapshot?.depositTxHash?.slice(0, 10) || 'chain'}...)`,
+          txHash: mintStep?.txHash || job.snapshot?.depositTxHash,
+          height: mintStep?.confirmedHeight,
+          jobId: job.id,
+          assetId: job.assetId
+        });
+        this.scheduleSave();
+        return;
+      }
+
       if (job.type === 'claim') {
         const plot = this.getPlotById(job.plotId);
         if (!plot) return;
@@ -1422,6 +1444,7 @@ class GameStore {
   }
 
   _onJobReverted(job) {
+    if (job.type === 'deposit' || job.type === 'treasury_block_reward') { chainLedger.dropPending(job.username, Number(job.snapshot?.amount) || 0); return; }
     if (job.gameApplied) return;
     job.gameApplied = true;
     this._recordRegistrations(job);
@@ -1431,6 +1454,42 @@ class GameStore {
     try {
       if (settlementUncertain) {
         console.error(`[ledger] Job ${job.id} has a failed on-chain compensation; reserved balances remain locked for reconciliation`);
+        return;
+      }
+
+      if (job.type === 'treasury_block_reward') {
+        const amount = Number(job.snapshot?.amount) || 0;
+        const mintStep = found('mint');
+        chainLedger.dropPending(username, amount);
+        chainLedger.receiveChain(username, amount);
+        chainLedger.recordChainMove({
+          username,
+          amount,
+          description: `Block reward (#${job.snapshot?.fromHeight}-#${job.snapshot?.toHeight})`,
+          txHash: mintStep?.txHash,
+          height: mintStep?.confirmedHeight,
+          jobId: job.id,
+          assetId: job.assetId
+        });
+        this.scheduleSave();
+        return;
+      }
+
+      if (job.type === 'deposit') {
+        const amount = Number(job.snapshot?.amount) || 0;
+        const mintStep = found('mint');
+        chainLedger.dropPending(username, amount);
+        chainLedger.receiveChain(username, amount);
+        chainLedger.recordChainMove({
+          username,
+          amount,
+          description: `Native NUM deposit settled (${job.snapshot?.depositTxHash?.slice(0, 10) || 'chain'}...)`,
+          txHash: mintStep?.txHash || job.snapshot?.depositTxHash,
+          height: mintStep?.confirmedHeight,
+          jobId: job.id,
+          assetId: job.assetId
+        });
+        this.scheduleSave();
         return;
       }
 

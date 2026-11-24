@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
@@ -12,7 +13,7 @@ import { RARITY_TIERS } from './data/plotGrid.js';
 import { chainAdapter } from './numista/chainAdapter.js';
 import { mintQueue } from './numista/mintQueue.js';
 import { chainLedger } from './data/chainLedger.js';
-import { readDeedMetadata, NUM_ASSET_ID } from './data/deedRegistry.js';
+import { readDeedMetadata, NUM_ASSET_ID, CURRENCY_ASSET_TYPE, CURRENCY_SCHEMA, toUnits, metadataHash } from './data/deedRegistry.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -37,8 +38,16 @@ function requireUser(req, res) {
 }
 
 function requireSessionUser(req, res) {
-  const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+  const token = String(req.headers.authorization || '')
+    .replace(/^Bearer\s+/i, '');
+
+  console.log('RAW AUTH:', req.headers.authorization);
+  console.log('TOKEN:', token);
+
   const user = userManager.verifyToken(token);
+
+  console.log('VERIFY RESULT:', user);
+
   if (!user) {
     res.status(401).json({ error: 'Valid sign-in required' });
     return null;
@@ -49,6 +58,7 @@ function requireSessionUser(req, res) {
     res.status(403).json({ error: "Cannot access another account's receive address" });
     return null;
   }
+
   return user.username;
 }
 
@@ -92,9 +102,9 @@ async function getOrCreateReceiveAddress(username) {
 
   if (!receiveAddressJobs.has(username)) {
     const job = numistaRpc
-      .createSubaddress(`Townforge @${username}`)
+      .createAccount(`Goldnumista @${username}`)
       .then(result => {
-        return userManager.setReceiveAddress(username, result);
+        return userManager.setReceiveAddress(username, { accountIndex: result.accountIndex, addressIndex: 0, address: result.address });
       })
       .catch(err => {
         console.error('Address creation failed:', err);
@@ -109,47 +119,88 @@ async function getOrCreateReceiveAddress(username) {
 
   return receiveAddressJobs.get(username);
 }
+
+
 // ----------------------------------------------------
 // AUTHENTICATION API
 // ----------------------------------------------------
 
-app.post('/api/auth/register', (req, res) => {
+app.post('/api/auth/register', async (req, res) => {
   try {
     const { username, password } = req.body;
-    const result = userManager.register({ username, password });
+
+    const result = userManager.register({
+      username,
+      password
+    });
+
     chainLedger.ensure(result.username);
-    res.json({ success: true, ...result });
+
+    const receiveAddress = await getOrCreateReceiveAddress(
+      result.username
+    );
+
+    res.json({
+      success: true,
+      username: result.username,
+      role: result.role,
+      token: result.token,
+      receiveAddress
+    });
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    console.error('REGISTER ERROR:', err);
+    res.status(400).json({
+      error: err.message
+    });
   }
 });
 
 app.post('/api/auth/login', (req, res) => {
   try {
     const { username, password } = req.body;
-    const result = userManager.login({ username, password });
-    res.json({ success: true, ...result });
+
+    const result = userManager.login({
+      username,
+      password
+    });
+
+    res.json({
+      success: true,
+      username: result.username,
+      role: result.role,
+      token: result.token
+    });
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    console.error('LOGIN ERROR:', err);
+    res.status(400).json({
+      error: err.message
+    });
   }
 });
 
 app.get('/api/auth/me', (req, res) => {
   const username = requireSessionUser(req, res);
+
   if (!username) return;
 
   const user = userManager.getUser(username);
-  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  if (!user) {
+    return res.status(404).json({
+      error: 'User not found'
+    });
+  }
 
   res.json({
     username: user.username,
     role: userManager.getRole(user.username),
+    receiveAddress: user.receiveAddress || null,
     wallet: walletView(user.username)
   });
 });
 
 // ----------------------------------------------------
-// PLOTS & BUILDINGS API (Townforge UK Registry)
+// PLOTS & BUILDINGS API (Goldnumista UK Registry)
 // ----------------------------------------------------
 
 // Compact public representation: owner is always a username, never a wallet address.
@@ -491,24 +542,38 @@ app.post('/api/stocks/trade', (req, res) => {
 
 app.get('/api/mining/job', (req, res) => {
   const minerId = req.query.minerId || 'browser-miner-01';
-  const job = miningPool.getJob(minerId);
+  const username = req.session?.user?.username || req.query.username || 'anon';
+  const job = miningPool.getJob(minerId, username);
   res.json(job);
 });
 
-app.post('/api/mining/submit', (req, res) => {
+app.post('/api/mining/submit', async (req, res) => {
   try {
     const { minerId, jobId, nonce, hash } = req.body;
     const username = requireUser(req, res);
     if (!username) return;
 
-    const result = miningPool.submitShare({ minerId, jobId, nonce, hash });
+    const result = await miningPool.submitShare({ minerId, jobId, nonce, hash, username });
     if (result.accepted) {
-      const mining = gameStore.creditMiningReward(
-        username,
-        CONFIG.ECONOMY.MINING_SHARE_REWARD,
-        `share:${jobId}:${nonce}`
-      );
-      result.pendingMining = mining?.pendingMining ?? null;
+      if (result.scheme === 'PPLNS') {
+        if (result.payouts && result.payouts.length > 0) {
+          for (const payout of result.payouts) {
+            gameStore.creditMiningReward(
+              payout.username,
+              payout.amount,
+              `pplns:block:${jobId}`
+            );
+          }
+        }
+        result.pendingMining = gameStore.pendingMining.get(username)?.amount || 0;
+      } else {
+        const mining = gameStore.creditMiningReward(
+          username,
+          CONFIG.ECONOMY.MINING_SHARE_REWARD,
+          `share:${jobId}:${nonce}`
+        );
+        result.pendingMining = mining?.pendingMining ?? null;
+      }
     }
     result.wallet = walletView(username);
     res.json(result);
@@ -518,7 +583,118 @@ app.post('/api/mining/submit', (req, res) => {
 });
 
 app.get('/api/mining/stats', (req, res) => {
-  res.json(miningPool.getPoolStats());
+  const username = req.session?.user?.username || req.query.username || null;
+  res.json(miningPool.getPoolStats(username));
+});
+
+// ----------------------------------------------------
+// ON-CHAIN BLOCK EXPLORER API
+// ----------------------------------------------------
+
+app.get('/api/explorer/status', async (req, res) => {
+  try {
+    const [info, lastHeader, txPool, peers] = await Promise.allSettled([
+      numistaRpc.getDaemonInfoRaw(),
+      numistaRpc.getLastBlockHeader(),
+      numistaRpc.getTxPoolStats(),
+      numistaRpc.getPeers()
+    ]);
+
+    const daemonInfo = info.status === 'fulfilled' ? info.value : {};
+    const header = lastHeader.status === 'fulfilled' ? lastHeader.value?.block_header : {};
+    const pool = txPool.status === 'fulfilled' ? txPool.value?.pool_stats : {};
+    const peerList = peers.status === 'fulfilled' ? (peers.value?.peers || []) : [];
+
+    res.json({
+      online: numistaRpc.isDaemonOnline,
+      height: daemonInfo.height || header?.height || numistaRpc.syncStatus.height || 0,
+      difficulty: daemonInfo.difficulty || header?.difficulty || 0,
+      hashrate: Math.round((daemonInfo.difficulty || header?.difficulty || 0) / 120),
+      topBlockHash: header?.hash || daemonInfo.top_block_hash || '',
+      lastBlockTimestamp: header?.timestamp ? header.timestamp * 1000 : null,
+      txPoolCount: pool?.txs_total ?? daemonInfo.tx_pool_size ?? 0,
+      peerCount: peerList.length || daemonInfo.incoming_connections_count || 0,
+      nettype: daemonInfo.nettype || 'numista-testnet'
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/explorer/latest-blocks', async (req, res) => {
+  try {
+    const count = Math.min(25, Number(req.query.count) || 10);
+    const height = numistaRpc.syncStatus.height || (await numistaRpc.getHeight().catch(() => ({})))?.height || 0;
+    if (height <= 0) return res.json({ currentHeight: 0, blocks: [] });
+
+    const blocks = [];
+    const start = Math.max(1, height);
+    const end = Math.max(1, height - count + 1);
+
+    for (let h = start; h >= end; h--) {
+      try {
+        const headerRes = await numistaRpc.getBlockHeaderByHeight(h);
+        if (headerRes?.block_header) {
+          const bh = headerRes.block_header;
+          blocks.push({
+            height: bh.height,
+            hash: bh.hash,
+            timestamp: bh.timestamp * 1000,
+            difficulty: bh.difficulty,
+            numTxes: bh.num_txes || 0,
+            reward: +(bh.reward / 1e12).toFixed(4),
+            minerReward: +(bh.reward / 1e12).toFixed(4),
+            size: bh.block_size
+          });
+        }
+      } catch {
+        // Skip missing header
+      }
+    }
+    res.json({ currentHeight: height, blocks });
+  } catch (err) {
+    res.status(500).json({ error: err.message, blocks: [] });
+  }
+});
+
+app.get('/api/explorer/block/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    let blockRes;
+    if (/^\d+$/.test(id)) {
+      blockRes = await numistaRpc.getBlock({ height: Number(id) });
+    } else {
+      blockRes = await numistaRpc.getBlock({ hash: id });
+    }
+    const bh = blockRes?.block_header || {};
+    res.json({
+      height: bh.height,
+      hash: bh.hash,
+      prevHash: bh.prev_hash,
+      timestamp: bh.timestamp ? bh.timestamp * 1000 : null,
+      difficulty: bh.difficulty,
+      reward: +(bh.reward / 1e12).toFixed(4),
+      minerTxHash: bh.miner_tx_hash,
+      txHashes: blockRes?.tx_hashes || [],
+      blockSize: bh.block_size,
+      depth: (numistaRpc.syncStatus.height || 0) - bh.height
+    });
+  } catch (err) {
+    res.status(404).json({ error: err.message });
+  }
+});
+
+app.get('/api/explorer/tx/:hash', async (req, res) => {
+  try {
+    const { hash } = req.params;
+    const tx = await numistaRpc.getTransaction(hash);
+    if (!tx || !tx.txHash) {
+      return res.status(404).json({ error: 'Transaction not found in mempool or blockchain' });
+    }
+    res.json(tx);
+  } catch (err) {
+    res.status(404).json({ error: err.message });
+  }
 });
 
 // ----------------------------------------------------
@@ -796,6 +972,170 @@ app.get('/api/wallet', async (req, res) => {
   res.status(404).json({ error: 'User not found' });
 });
 
+
+app.post('/api/wallet/withdraw', async (req, res) => {
+  try {
+    const username = requireUser(req, res);
+    if (!username) return;
+    const toAddress = String(req.body?.toAddress || '').trim();
+    const grossAmount = +Number(req.body?.amount || 0).toFixed(4);
+    const fee = +(Number(CONFIG.ECONOMY.TRANSFER_NETWORK_FEE_NUM) || 0.05).toFixed(4);
+
+    if (!toAddress) return res.status(400).json({ error: 'Destination Numista address is required' });
+    if (!(grossAmount >= 0.2)) return res.status(400).json({ error: 'Minimum withdrawal is 0.2000 NUM' });
+
+    const bal = chainLedger.getBalance(username);
+    if (bal.available < grossAmount) {
+      return res.status(400).json({ error: 'Insufficient available NUM balance' });
+    }
+
+    const valid = await numistaRpc.validateAddress(toAddress);
+    if (!valid?.valid) {
+      return res.status(400).json({ error: 'Invalid Numista wallet address' });
+    }
+
+    const netNative = +(grossAmount - fee).toFixed(4);
+    const vaultBal = await numistaRpc.getWalletBalance(0);
+    if (Number(vaultBal.unlockedBalance || 0) < netNative + 0.01) {
+      return res.status(400).json({ error: 'Custodial vault native balance is currently maturing; try again in a few blocks' });
+    }
+
+    // Lock player's in-game NUM and send native coins on-chain
+    chainLedger.lock(username, grossAmount);
+    let payout;
+    try {
+      payout = await numistaRpc.sendTransfer({ toAddress, amountNum: netNative, accountIndex: 0 });
+    } catch (err) {
+      chainLedger.unlock(username, grossAmount);
+      throw err;
+    }
+
+    chainLedger.settleSpend(username, grossAmount);
+    chainLedger.receiveChain(CONFIG.CHAIN.TREASURY_USERNAME, grossAmount);
+    chainLedger.recordChainMove({
+      username,
+      amount: -grossAmount,
+      description: `Withdraw ${netNative} native NUM (${fee} NUM fee) to ${toAddress.slice(0, 10)}...`,
+      txHash: payout.txHash,
+      assetId: NUM_ASSET_ID
+    });
+    chainLedger.recordChainMove({
+      username: CONFIG.CHAIN.TREASURY_USERNAME,
+      amount: grossAmount,
+      description: `Withdrawal redemption + ${fee} NUM fee from @${username}`,
+      txHash: payout.txHash,
+      assetId: NUM_ASSET_ID
+    });
+
+    res.json({
+      success: true,
+      grossAmount,
+      fee,
+      netNative,
+      txHash: payout.txHash,
+      wallet: walletView(username)
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/wallet/convert-to-game', async (req, res) => {
+  try {
+    const username = requireUser(req, res);
+    if (!username) return;
+    const amount = +Number(req.body?.amount || 0).toFixed(4);
+    const fee = +(Number(CONFIG.ECONOMY.TRANSFER_NETWORK_FEE_NUM) || 0.05).toFixed(4);
+    if (!(amount >= 0.1)) return res.status(400).json({ error: 'Minimum conversion is 0.1000 NUM' });
+
+    const recv = await getOrCreateReceiveAddress(username);
+    if (!recv || !(recv.accountIndex > 0)) {
+      return res.status(400).json({ error: 'Player native account not initialized yet; refresh wallet first' });
+    }
+
+    const totalNativeRequired = +(amount + fee).toFixed(4);
+    const nativeBal = await numistaRpc.getWalletBalance(recv.accountIndex);
+    if (Number(nativeBal.unlockedBalance || 0) < totalNativeRequired + 0.01) {
+      return res.status(400).json({
+        error: `Insufficient unlocked native NUM in your account (need ${totalNativeRequired} NUM + native gas fee)`
+      });
+    }
+
+    // Send 1:1 backing + 0.05 NUM pure profit fee from player's native account to townforge (account 0)
+    const vaultInfo = await numistaRpc.getWalletAddress(0, 0);
+    const nativeTx = await numistaRpc.sendTransfer({
+      toAddress: vaultInfo.address,
+      amountNum: totalNativeRequired,
+      accountIndex: recv.accountIndex
+    });
+
+    // Mint in-game NUM asset tokens with gas paid by player's native account
+    const steps = [];
+    const assetExists = await chainAdapter.getAsset(NUM_ASSET_ID);
+    if (!assetExists) {
+      steps.push({
+        key: 'create_currency',
+        label: 'Create fungible NUM currency asset',
+        operation: {
+          kind: 'create_asset',
+          accountIndex: recv.accountIndex,
+          assetId: NUM_ASSET_ID,
+          assetType: CURRENCY_ASSET_TYPE,
+          maxSupply: 0,
+          metadataHash: metadataHash(CURRENCY_SCHEMA)
+        }
+      });
+    }
+    const existingReg = chainLedger.getUsernameRecord(username) || await chainAdapter.getUsernameKey(username);
+    if (!existingReg) {
+      const reg = chainLedger.ensureUsernameKey(username);
+      steps.push({
+        key: 'register_user',
+        label: `Register @${username} on-chain`,
+        operation: {
+          kind: 'register_username',
+          accountIndex: recv.accountIndex,
+          username,
+          key: reg.publicKey
+        }
+      });
+    }
+    steps.push({
+      key: 'mint',
+      label: `Convert ${amount} native NUM to in-game NUM (player-paid gas)`,
+      operation: {
+        kind: 'mint',
+        accountIndex: recv.accountIndex,
+        assetId: NUM_ASSET_ID,
+        assetType: CURRENCY_ASSET_TYPE,
+        recipient: username,
+        amountUnits: toUnits(amount)
+      }
+    });
+
+    chainLedger.addPending(username, amount);
+    const job = mintQueue.enqueue({
+      type: 'deposit',
+      username,
+      assetId: NUM_ASSET_ID,
+      snapshot: { amount, fee, nativeTxHash: nativeTx.txHash, depositTxHashes: [nativeTx.txHash] },
+      meta: { name: `Convert ${amount} native NUM ? In-Game NUM` },
+      steps
+    });
+
+    res.json({
+      success: true,
+      amount,
+      fee,
+      nativeTxHash: nativeTx.txHash,
+      job: mintQueue.publicJob(job),
+      wallet: walletView(username)
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 app.get('/api/wallet/receive', async (req, res) => {
   const username = requireSessionUser(req, res);
   if (!username) return;
@@ -808,6 +1148,67 @@ app.get('/api/wallet/receive', async (req, res) => {
       receiveAddress.addressIndex
     );
 
+    const minConf = Number(CONFIG.CHAIN.CONFIRMATIONS) || 10;
+    const settledDeposits = (receiveInfo.incomingTransfers || []).filter(
+      t => t.status === 'confirmed' && Number(t.confirmations) >= minConf && Number(t.amount) > 0
+    );
+    const hasActiveDeposit = mintQueue.jobs.some(j => j.type === 'deposit' && j.username === username);
+    if (false && settledDeposits.length > 0 && chainAdapter.mode === 'live' && !hasActiveDeposit) {
+      const existingHistory = chainLedger.listFor(username, 500);
+      const activeJobs = [...mintQueue.jobs, ...mintQueue.history];
+      const uncredited = settledDeposits.filter(dep =>
+        !existingHistory.some(tx => tx.description && tx.description.includes(dep.txHash.slice(0, 10))) &&
+        !activeJobs.some(j => j.type === 'deposit' && Array.isArray(j.snapshot?.depositTxHashes) && j.snapshot.depositTxHashes.includes(dep.txHash))
+      );
+
+      if (uncredited.length > 0) {
+        const totalAmount = +uncredited.reduce((s, d) => s + Number(d.amount), 0).toFixed(6);
+        const txHashes = uncredited.map(d => d.txHash);
+        const steps = [];
+        const assetExists = await chainAdapter.getAsset(NUM_ASSET_ID);
+        if (!assetExists) {
+          steps.push({
+            key: 'create_currency',
+            label: 'Create fungible NUM currency asset',
+            operation: {
+              kind: 'create_asset',
+              assetId: NUM_ASSET_ID,
+              assetType: CURRENCY_ASSET_TYPE,
+              maxSupply: 1000000000000,
+              metadataHash: metadataHash({ schema: CURRENCY_SCHEMA, symbol: 'NUM', decimals: CONFIG.CHAIN.DECIMALS })
+            }
+          });
+        }
+        if (!chainLedger.getUsernameRecord(username) && !(await chainAdapter.getUsernameKey(username))) {
+          steps.push({
+            key: `reg_${username}`,
+            label: `Register @${username} on-chain`,
+            operation: { kind: 'register_username', username, key: crypto.generateKeyPairSync('ed25519').publicKey.export({ type: 'spki', format: 'der' }).subarray(-32).toString('hex') }
+          });
+        }
+        steps.push({
+          key: 'mint',
+          label: `Mint ${totalAmount} NUM asset from native deposits`,
+          operation: {
+            kind: 'mint',
+            assetId: NUM_ASSET_ID,
+            assetType: CURRENCY_ASSET_TYPE,
+            recipient: username,
+            amountUnits: toUnits(totalAmount)
+          }
+        });
+
+        chainLedger.addPending(username, totalAmount);
+        mintQueue.enqueue({
+          type: 'deposit',
+          username,
+          assetId: NUM_ASSET_ID,
+          snapshot: { amount: totalAmount, depositTxHash: txHashes[0], depositTxHashes: txHashes },
+          meta: { name: `Native deposits (${txHashes.length} tx): ${totalAmount} NUM` },
+          steps
+        });
+      }
+    }
     res.json({
       ...receiveAddress,
       ...receiveInfo
@@ -848,12 +1249,24 @@ app.post('/api/network/set-node', (req, res) => {
 app.get('/api/network', async (req, res) => {
   const net = await numistaRpc.getNetworkInfo();
   const capabilities = await chainAdapter.capabilities();
-  let crownEstateFund = { available: false };
+  const treasuryBal = chainLedger.getBalance(CONFIG.CHAIN.TREASURY_USERNAME);
+  let crownEstateFund = {
+    available: true,
+    balance: treasuryBal.available,
+    unlockedBalance: treasuryBal.available,
+    pendingBalance: treasuryBal.pending,
+    source: 'chain_ledger'
+  };
   try {
-    crownEstateFund = { available: true, ...(await numistaRpc.getCrownEstateFundBalance()) };
-  } catch (err) {
-    crownEstateFund.error = err.message;
-  }
+    const watchOnly = await numistaRpc.getCrownEstateFundBalance();
+    crownEstateFund = {
+      available: true,
+      balance: +(Number(watchOnly.balance || 0) + treasuryBal.available).toFixed(6),
+      unlockedBalance: +(Number(watchOnly.unlockedBalance || 0) + treasuryBal.available).toFixed(6),
+      pendingBalance: +(Number(watchOnly.pendingBalance || 0) + treasuryBal.pending).toFixed(6),
+      source: 'combined'
+    };
+  } catch { /* use @crown_treasury chainLedger balance */ }
   // The simulated chain still has a height and is usable, so surface it even
   // when no daemon is reachable.
   if (!net.height && capabilities.chainHeight) {
@@ -868,7 +1281,7 @@ app.get('/api/network', async (req, res) => {
     config: {
       ticker: CONFIG.NUMISTA.TICKER,
       name: CONFIG.NUMISTA.NAME,
-      crownEstateBlockReward: CONFIG.NUMISTA.GAME_FUND_BLOCK_REWARD_NUM,
+      crownEstateBlockReward: CONFIG.ECONOMY.TREASURY_BLOCK_REWARD_NUM,
       claimPrice: CONFIG.ECONOMY.PLOT_CLAIM_PRICE_NUM,
       taxRate: CONFIG.ECONOMY.TAX_RATE_TOWN_HALL,
       confirmationsRequired: CONFIG.CHAIN.CONFIRMATIONS
@@ -895,10 +1308,16 @@ async function boot() {
   await chainLedger.bootstrap();
   mintQueue.start();
 
+  // Load the custodial wallet up front so subaddress and asset operations do
+  // not each pay the "No wallet file" retry cost.
+  numistaRpc.ensureWalletOpen()
+    .then(result => console.log(`[wallet-rpc] custodial wallet ready: ${result.filename}`))
+    .catch(err => console.warn(`[wallet-rpc] custodial wallet not ready: ${err.message}`));
+
   console.log(`[chain] mode=${capabilities.mode} ready=${capabilities.ready} :: ${capabilities.reason}`);
 
   app.listen(CONFIG.PORT, () => {
-    console.log(`[Townforge Numista] Server active on http://localhost:${CONFIG.PORT}`);
+    console.log(`[Goldnumista] Server active on http://localhost:${CONFIG.PORT}`);
   });
 }
 

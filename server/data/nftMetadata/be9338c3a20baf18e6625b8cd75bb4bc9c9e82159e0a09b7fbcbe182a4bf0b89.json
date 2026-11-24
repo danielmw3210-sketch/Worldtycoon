@@ -1,0 +1,34 @@
+{
+  "assetId": "be9338c3a20baf18e6625b8cd75bb4bc9c9e82159e0a09b7fbcbe182a4bf0b89",
+  "metadataHash": "0e60df6e083ce4765a78d8c44caf756668a9c2feb09bab1dcc6a692eb67b70f0",
+  "metadata": {
+    "app": "townforge-numista",
+    "schema": "townforge.numista.deed/v1",
+    "gridVersion": "uk-numista-2026-11-v2",
+    "gridSeed": 20261119,
+    "plotId": "UK-0773",
+    "name": "Otterstead Wharf",
+    "label": "W-16",
+    "region": "Wales",
+    "coords": [
+      51.915,
+      -3.058983
+    ],
+    "bounds": [
+      [
+        51.85,
+        -3.170779
+      ],
+      [
+        51.98,
+        -2.947186
+      ]
+    ],
+    "rarity": 1,
+    "rarityKey": "common",
+    "rarityName": "Common",
+    "price": 50,
+    "buildingType": "terraced_row",
+    "image": "https://townforge.local/deeds/UK-0773.png"
+  }
+}

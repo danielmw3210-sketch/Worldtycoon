@@ -11,6 +11,7 @@ import BrowserMinerModal from './components/BrowserMinerModal';
 import BuyCryptoModal from './components/BuyCryptoModal';
 import WalletStatus from './components/WalletStatus';
 import BlockchainSyncModal from './components/BlockchainSyncModal';
+import BlockExplorerModal from './components/BlockExplorerModal';
 import AuthModal from './components/AuthModal';
 import AccountModal from './components/AccountModal';
 import TransactionToast from './components/TransactionToast';
@@ -25,7 +26,7 @@ export default function App() {
           <div className="w-8 h-8 rounded-lg bg-[#0b0e14]"></div>
         </div>
         <div className="mt-4 font-mono text-sm tracking-widest uppercase font-bold text-orange-400">
-          Loading Townforge UK Land Registry...
+          Loading Goldnumista UK Land Registry...
         </div>
         <div className="text-xs text-slate-500 font-mono mt-1">Connecting to Numista Monero RPC Daemon</div>
       </div>
@@ -57,6 +58,7 @@ export default function App() {
       {activeModal === 'buy_crypto' && <BuyCryptoModal />}
       {activeModal === 'wallet_details' && <WalletStatus />}
       {activeModal === 'sync_settings' && <BlockchainSyncModal />}
+      {activeModal === 'explorer' && <BlockExplorerModal />}
       {activeModal === 'account' && <AccountModal />}
 
       {/* Real-time Toasts */}

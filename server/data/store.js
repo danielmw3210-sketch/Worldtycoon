@@ -269,7 +269,7 @@ class GameStore {
     }
   }
 
-  scheduleSave() {
+  scheduleSave() { return;
     if (this._saveTimer) clearTimeout(this._saveTimer);
     this._saveTimer = setTimeout(() => {
       this._saveTimer = null;

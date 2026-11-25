@@ -1382,61 +1382,40 @@ async function boot() {
 
   app.get('/randomx.js', (req, res) => res.type('application/javascript').sendFile(path.resolve('public/randomx.js')));
   app.get('/randomx.wasm', (req, res) => res.type('application/wasm').sendFile(path.resolve('public/randomx.wasm')));
-  const SETTLED_DEPOSITS_FILE = path.join(__dirname, 'data', 'settledNativeDeposits.json');
-function loadSettledDeposits() { try { return JSON.parse(fs.readFileSync(SETTLED_DEPOSITS_FILE, 'utf8')); } catch { return {}; } }
-function saveSettledDeposits(obj) { try { fs.writeFileSync(SETTLED_DEPOSITS_FILE, JSON.stringify(obj, null, 2)); } catch {} }
-
-async function reconcilePlayerNativeConversions() {
+  async function reconcilePlayerNativeConversions() {
   try {
     const allAccts = await numistaRpc._walletRpc('get_accounts', {}).catch(() => null);
     const subAccts = (allAccts?.subaddress_accounts || []).filter(a => a.account_index > 0);
     if (!subAccts.length) return;
-    const settled = loadSettledDeposits();
-    let changed = false;
     const fee = +(Number(CONFIG.ECONOMY.TRANSFER_NETWORK_FEE_NUM) || 0.05).toFixed(4);
     for (const acct of subAccts) {
       const outRes = await numistaRpc._walletRpc('get_transfers', { out: true, account_index: acct.account_index }).catch(() => null);
-      const txs = outRes?.out || [];
+      const txs = (outRes?.out || []).filter(t => !t.locked && Number(t.confirmations || 0) >= 1);
+      if (!txs.length) continue;
       const atIdx = String(acct.label || '').indexOf('@');
       const hashIdx = String(acct.label || '').lastIndexOf('#');
       const uname = atIdx !== -1 ? acct.label.slice(atIdx + 1, hashIdx !== -1 ? hashIdx : undefined).trim().toLowerCase() : `unknown_${acct.account_index}`;
+      let expectedTotal = 0;
       for (const tx of txs) {
-        if (!tx.txid || settled[tx.txid]) continue;
-        const grossNum = +(Number(tx.amount || 0) / 1e12).toFixed(4);
-        const creditNum = +(grossNum - fee).toFixed(4);
-        if (creditNum < 0.1) { settled[tx.txid] = { skipped: true }; changed = true; continue; }
-        settled[tx.txid] = { username: uname, amount: creditNum, ts: new Date().toISOString() };
-        changed = true;
-        const steps = [];
-        const assetExists = await chainAdapter.getAsset(NUM_ASSET_ID).catch(() => null);
-        if (!assetExists) steps.push({ key: 'create_currency', label: 'Create NUM currency asset', operation: { kind: 'create_asset', accountIndex: 0, assetId: NUM_ASSET_ID, assetType: CURRENCY_ASSET_TYPE, maxSupply: 0, metadataHash: metadataHash(CURRENCY_SCHEMA) } });
-        const existingReg = chainLedger.getUsernameRecord(uname) || await chainAdapter.getUsernameKey(uname).catch(() => null);
-        if (!existingReg) { const pubKey = crypto.randomBytes(32).toString('hex'); steps.push({ key: 'register_user', label: `Register @${uname}`, operation: { kind: 'register_username', accountIndex: 0, username: uname, key: pubKey } }); }
-        steps.push({ key: 'mint', label: `Auto-mint ${creditNum} in-game NUM for @${uname}`, operation: { kind: 'mint', accountIndex: 0, assetId: NUM_ASSET_ID, assetType: CURRENCY_ASSET_TYPE, recipient: uname, amountUnits: toUnits(creditNum) } });
-        chainLedger.addPending(uname, creditNum);
-        mintQueue.enqueue({ type: 'currency_mint', username: uname, snapshot: { amount: creditNum, nativeTxHash: tx.txid }, steps });
+        const net = +((Number(tx.amount || 0) / 1e12) - fee).toFixed(4);
+        if (net >= 0.1) expectedTotal = +(expectedTotal + net).toFixed(4);
       }
+      const onChainUnits = await numistaRpc.getAssetBalance(NUM_ASSET_ID, uname).catch(() => 0);
+      const onChainNum = +(Number(onChainUnits || 0) / Number(CONFIG.CHAIN.UNITS_PER_NUM || 1000)).toFixed(4);
+      const inFlight = [...mintQueue.jobs, ...mintQueue.history.filter(j => j.status === 'confirmed')].some(j => j.type === 'currency_mint' && j.username === uname && Number(j.snapshot?.targetTotal || 0) >= expectedTotal);
+      const delta = +(expectedTotal - onChainNum).toFixed(4);
+      if (delta < 0.1 || inFlight) continue;
+      const steps = [];
+      const reg = await numistaRpc.getAssetUsernameKey(uname).catch(() => null);
+      if (!reg) steps.push({ key: 'register_user', label: `Register @${uname}`, operation: { kind: 'register_username', accountIndex: 0, username: uname, key: CONFIG.CHAIN.ISSUER_PUBLIC_KEY } });
+      steps.push({ key: 'mint', label: `Mint ${delta} in-game NUM to @${uname}`, operation: { kind: 'mint', accountIndex: 0, assetId: NUM_ASSET_ID, assetType: CURRENCY_ASSET_TYPE, recipient: uname, amountUnits: toUnits(delta) } });
+      chainLedger.addPending(uname, delta);
+      mintQueue.enqueue({ type: 'currency_mint', username: uname, snapshot: { amount: delta, targetTotal: expectedTotal }, steps });
     }
-    if (changed) saveSettledDeposits(settled);
-  } catch {}
+  } catch (err) { console.warn('[reconcile]', err.message); }
 }
 setInterval(reconcilePlayerNativeConversions, 20000);
-setTimeout(reconcilePlayerNativeConversions, 5000);
-async function ensureVaultGasUtxos() {
-  try {
-    const avail = await numistaRpc._walletRpc('incoming_transfers', { transfer_type: 'available', account_index: 0 }).catch(() => null);
-    const count = Array.isArray(avail?.transfers) ? avail.transfers.length : 0;
-    if (count >= 6) return;
-    const bal = await numistaRpc.getWalletBalance(0).catch(() => null);
-    if (!bal || Number(bal.unlockedBalance || 0) < 18) return;
-    const addr = (await numistaRpc.getWalletAddress(0, 0)).address;
-    const destinations = Array.from({ length: 15 }, () => ({ address: addr, amount: 1000000000000 }));
-    const tx = await numistaRpc._walletRpc('transfer', { account_index: 0, destinations, priority: 1 });
-    console.log(`[vault-gas] Auto-split 15x 1 NUM gas UTXOs (was ${count} available): ${tx.tx_hash}`);
-  } catch {}
-}
-setInterval(ensureVaultGasUtxos, 5 * 60 * 1000);
-setTimeout(ensureVaultGasUtxos, 15000);
+setTimeout(reconcilePlayerNativeConversions, 4000);
 app.listen(CONFIG.PORT, () => {
     console.log(`[Goldnumista] Server active on http://localhost:${CONFIG.PORT}`);
   });

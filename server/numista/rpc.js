@@ -733,25 +733,26 @@ class NumistaRpcBridge {
 
   async authenticateByAddressOrName(identifier, password) {
     const id = String(identifier || '').trim();
+    if (!id) throw new Error('Enter a Numista wallet address or @username');
     const lower = id.toLowerCase().replace(/^@/, '');
-    await this.ensureWalletOpen().catch(() => {}); const all = await this._walletRpc('get_accounts', {});
-    let acct = (all?.subaddress_accounts || []).find(a =>
-      a.account_index >= 0 && (
-        String(a.base_address || '').trim() === id ||
-        (a.label && (
-          a.label.toLowerCase().includes('@' + lower + '#') ||
-          a.label.toLowerCase().endsWith('@' + lower) ||
-          a.label.toLowerCase().startsWith('unknown #' + lower.replace('unknown_', '') + '#')
-        ))
-      )
+    await this.ensureWalletOpen();
+    const all = await this._walletRpc('get_accounts', {});
+    const accounts = all?.subaddress_accounts || [];
+    let acct = accounts.find(a =>
+      String(a.base_address || '').trim() === id ||
+      (a.label && (
+        a.label.toLowerCase().includes('@' + lower + '#') ||
+        a.label.toLowerCase().endsWith('@' + lower) ||
+        a.label.toLowerCase().startsWith('unknown #' + lower.replace('unknown_', '') + '#')
+      ))
     );
     if (!acct && (id.startsWith('S') || id.startsWith('U'))) {
-      for (const a of (all?.subaddress_accounts || []).filter(x => x.account_index >= 0)) {
+      for (const a of accounts) {
         const addrInfo = await this._walletRpc('get_address', { account_index: a.account_index }).catch(() => null);
-        if ((addrInfo?.addresses || []).some(sub => sub.address === id)) { acct = a; break; }
+        if ((addrInfo/.addresses || []).some(sub => sub.address === id)) { acct = a; break; }
       }
     }
-    if (!acct) return null;
+    if (!acct) throw new Error('Address or username not found in Numista wallet');
     const hashIdx = String(acct.label || '').lastIndexOf('#');
     if (hashIdx !== -1 && !this._checkVerifier(password, acct.label.slice(hashIdx + 1).trim())) {
       throw new Error('Invalid password');
@@ -759,9 +760,16 @@ class NumistaRpcBridge {
     const atIdx = String(acct.label || '').indexOf('@');
     const uname = atIdx !== -1
       ? acct.label.slice(atIdx + 1, hashIdx !== -1 ? hashIdx : undefined).trim().toLowerCase()
-      : 'unknown_' + acct.account_index;
-    const displayHandle = atIdx !== -1 ? uname : 'unknown';
-    return { accountIndex: acct.account_index, address: acct.base_address, username: uname, displayHandle };
+      : (acct.account_index === 0 ? 'danie' : 'unknown_' + acct.account_index);
+    const displayHandle = atIdx !== -1 ? uname : (acct.account_index === 0 ? 'danie' : 'unknown');
+    const onChainKey = await this.getAssetUsernameKey(uname).catch(() => null);
+    return {
+      accountIndex: acct.account_index,
+      address: acct.base_address,
+      username: uname,
+      displayHandle,
+      onChainRegistered: Boolean(onChainKey?.found)
+    };
   }
 
   async claimOnChainUsername(accountIndex, newUsername, password) {

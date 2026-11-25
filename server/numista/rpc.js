@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 /**
  * NumistaRpcBridge
  * ─────────────────────────────────────────────────────────────────────────────
@@ -678,15 +679,65 @@ class NumistaRpcBridge {
     return result.address;
   }
 
-  async createAccount(label = '') {
-    if (label) {
-      const all = await this._walletRpc('get_accounts', {}).catch(() => null);
-      const userSuffix = label.includes('@') ? label.slice(label.indexOf('@')).toLowerCase() : label.toLowerCase();
-      const existing = (all?.subaddress_accounts || []).filter(a => a.account_index > 0 && a.label && (a.label.toLowerCase().endsWith(userSuffix) || a.label.toLowerCase().includes(userSuffix.replace('@','')))).sort((a,b) => a.account_index - b.account_index);
-      if (existing.length > 0) return { accountIndex: existing.at(0).account_index, address: existing.at(0).base_address };
+  _makeVerifier(password, salt = crypto.randomBytes(6).toString('hex')) {
+    const hash = crypto.createHash('sha256').update(`${salt}:${password}`).digest('hex').slice(0, 24);
+    return `${salt}:${hash}`;
+  }
+
+  _checkVerifier(password, tag) {
+    const [salt, expected] = String(tag || '').split(':');
+    if (!salt || !expected) return false;
+    const actual = crypto.createHash('sha256').update(`${salt}:${password}`).digest('hex').slice(0, 24);
+    return actual === expected;
+  }
+
+  async findWalletAccount(username) {
+    const clean = String(username || '').trim().toLowerCase();
+    if (!clean) return null;
+    const all = await this._walletRpc('get_accounts', {}).catch(() => null);
+    const matches = (all?.subaddress_accounts || [])
+      .filter(a => a.account_index > 0 && a.label)
+      .filter(a => {
+        const lbl = a.label.toLowerCase();
+        const atIdx = lbl.indexOf('@');
+        if (atIdx === -1) return lbl === clean;
+        const namePart = lbl.slice(atIdx + 1).split('#');
+        return namePart.at(0) === clean;
+      })
+      .sort((a, b) => a.account_index - b.account_index);
+    return matches.at(0) || null;
+  }
+
+  async createAccount(label = '', password = '') {
+    const atIdx = label.indexOf('@');
+    const uname = atIdx !== -1 ? label.slice(atIdx + 1).split('#').at(0).trim().toLowerCase() : '';
+    if (uname) {
+      const existing = await this.findWalletAccount(uname);
+      if (existing) return { accountIndex: existing.account_index, address: existing.base_address };
     }
-    const result = await this._walletRpc('create_account', { label });
+    const finalLabel = uname && password
+      ? `Goldnumista @${uname}#${this._makeVerifier(password)}`
+      : label;
+    const result = await this._walletRpc('create_account', { label: finalLabel });
     return { accountIndex: result.account_index, address: result.address };
+  }
+
+  async authenticateWalletUser(username, password) {
+    const acct = await this.findWalletAccount(username);
+    if (!acct) return null;
+    const hashIdx = acct.label.indexOf('#');
+    if (hashIdx === -1) {
+      // Legacy account without password hash yet: bind verifier on first login
+      const clean = String(username).trim().toLowerCase();
+      const newLabel = `Goldnumista @${clean}#${this._makeVerifier(password)}`;
+      await this._walletRpc('label_account', { account_index: acct.account_index, label: newLabel }).catch(() => {});
+      return { accountIndex: acct.account_index, address: acct.base_address };
+    }
+    const tag = acct.label.slice(hashIdx + 1).trim();
+    if (!this._checkVerifier(password, tag)) {
+      throw new Error('Invalid password');
+    }
+    return { accountIndex: acct.account_index, address: acct.base_address };
   }
 
   // ── Numista asset RPC (upgraded node) ─────────────────────────────────────

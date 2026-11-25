@@ -104,7 +104,7 @@ async function getOrCreateReceiveAddress(username) {
 
   if (!receiveAddressJobs.has(username)) {
     const job = numistaRpc
-      .createAccount(`Goldnumista @${username}`)
+      .createAccount(`Goldnumista @${username}`, userManager.getUser(username)?.password || '')
       .then(result => {
         return userManager.setReceiveAddress(username, { accountIndex: result.accountIndex, addressIndex: 0, address: result.address });
       })
@@ -166,13 +166,20 @@ app.post('/api/auth/login', async (req, res) => {
       result = userManager.login({ username, password });
     } catch (loginErr) {
       const uname = String(username || '').trim().toLowerCase();
-      if (uname && String(password || '').length >= 1 && !userManager.users.has(uname)) {
-        userManager.register({ username: uname, password });
-        await getOrCreateReceiveAddress(uname).catch(() => null);
-        result = userManager.login({ username: uname, password });
-      } else {
+      if (!uname || !password || userManager.users.has(uname)) {
         throw loginErr;
       }
+      const verified = await numistaRpc.authenticateWalletUser(uname, password);
+      if (!verified) {
+        throw new Error('Account not found on Numista blockchain. Please register first.');
+      }
+      userManager.register({ username: uname, password });
+      userManager.setReceiveAddress(uname, {
+        address: verified.address,
+        accountIndex: verified.accountIndex,
+        addressIndex: 0
+      });
+      result = userManager.login({ username: uname, password });
     }
 
     res.json({

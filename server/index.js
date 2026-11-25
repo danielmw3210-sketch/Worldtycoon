@@ -1391,7 +1391,6 @@ async function boot() {
     for (const acct of subAccts) {
       const outRes = await numistaRpc._walletRpc('get_transfers', { out: true, account_index: acct.account_index }).catch(() => null);
       const txs = (outRes?.out || []).filter(t => !t.locked && Number(t.confirmations || 0) >= 1);
-      if (!txs.length) continue;
       const atIdx = String(acct.label || '').indexOf('@');
       const hashIdx = String(acct.label || '').lastIndexOf('#');
       const uname = atIdx !== -1 ? acct.label.slice(atIdx + 1, hashIdx !== -1 ? hashIdx : undefined).trim().toLowerCase() : `unknown_${acct.account_index}`;
@@ -1402,20 +1401,21 @@ async function boot() {
       }
       const onChainUnits = await numistaRpc.getAssetBalance(NUM_ASSET_ID, uname).catch(() => 0);
       const onChainNum = +(Number(onChainUnits || 0) / Number(CONFIG.CHAIN.UNITS_PER_NUM || 1000)).toFixed(4);
-      const inFlight = [...mintQueue.jobs, ...mintQueue.history.filter(j => j.status === 'confirmed')].some(j => j.type === 'currency_mint' && j.username === uname && Number(j.snapshot?.targetTotal || 0) >= expectedTotal);
       const delta = +(expectedTotal - onChainNum).toFixed(4);
-      if (delta < 0.1 || inFlight) continue;
+      const acc = chainLedger.getAccount(uname);
+      acc.chainSettled = onChainNum;
+      acc.pending = delta > 0 ? delta : 0;
+      const alreadyQueued = [...mintQueue.jobs, ...mintQueue.history].some(j => j.type === 'currency_mint' && j.username === uname && Number(j.snapshot?.targetTotal || 0) >= expectedTotal);
+      if (delta < 0.1 || alreadyQueued) continue;
       const steps = [];
       const reg = await numistaRpc.getAssetUsernameKey(uname).catch(() => null);
       if (!reg) steps.push({ key: 'register_user', label: `Register @${uname}`, operation: { kind: 'register_username', accountIndex: 0, username: uname, key: CONFIG.CHAIN.ISSUER_PUBLIC_KEY } });
       steps.push({ key: 'mint', label: `Mint ${delta} in-game NUM to @${uname}`, operation: { kind: 'mint', accountIndex: 0, assetId: NUM_ASSET_ID, assetType: CURRENCY_ASSET_TYPE, recipient: uname, amountUnits: toUnits(delta) } });
-      chainLedger.addPending(uname, delta);
       mintQueue.enqueue({ type: 'currency_mint', username: uname, snapshot: { amount: delta, targetTotal: expectedTotal }, steps });
     }
   } catch (err) { console.warn('[reconcile]', err.message); }
 }
-setInterval(reconcilePlayerNativeConversions, 20000);
-setTimeout(reconcilePlayerNativeConversions, 4000);
+setTimeout(reconcilePlayerNativeConversions, 5000);
 app.listen(CONFIG.PORT, () => {
     console.log(`[Goldnumista] Server active on http://localhost:${CONFIG.PORT}`);
   });

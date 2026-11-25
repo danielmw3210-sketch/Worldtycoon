@@ -690,7 +690,7 @@ class NumistaRpcBridge {
     return actual === expected;
   }
 
-  async findWalletAccount(username) {
+  async findWalletAccount(username) { const m = String(username || '').trim().toLowerCase().match(/^unknown_(\d+)$/); if (m) { const idx = Number(m[1]); const all0 = await this._walletRpc('get_accounts', {}).catch(() => null); const hit = (all0?.subaddress_accounts || []).find(a => a.account_index === idx); if (hit) return hit; }
     const clean = String(username || '').trim().toLowerCase();
     if (!clean || clean.length < 2) return null;
     const all = await this._walletRpc('get_accounts', {}).catch(() => null);

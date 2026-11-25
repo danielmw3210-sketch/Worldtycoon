@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import crypto from 'crypto';
 import express from 'express';
 import cors from 'cors';
@@ -1378,7 +1379,47 @@ async function boot() {
 
   app.get('/randomx.js', (req, res) => res.type('application/javascript').sendFile(path.resolve('public/randomx.js')));
   app.get('/randomx.wasm', (req, res) => res.type('application/wasm').sendFile(path.resolve('public/randomx.wasm')));
-  app.listen(CONFIG.PORT, () => {
+  const SETTLED_DEPOSITS_FILE = path.join(__dirname, 'data', 'settledNativeDeposits.json');
+function loadSettledDeposits() { try { return JSON.parse(fs.readFileSync(SETTLED_DEPOSITS_FILE, 'utf8')); } catch { return {}; } }
+function saveSettledDeposits(obj) { try { fs.writeFileSync(SETTLED_DEPOSITS_FILE, JSON.stringify(obj, null, 2)); } catch {} }
+
+async function reconcilePlayerNativeConversions() {
+  try {
+    const allAccts = await numistaRpc._walletRpc('get_accounts', {}).catch(() => null);
+    const subAccts = (allAccts?.subaddress_accounts || []).filter(a => a.account_index > 0);
+    if (!subAccts.length) return;
+    const settled = loadSettledDeposits();
+    let changed = false;
+    const fee = +(Number(CONFIG.ECONOMY.TRANSFER_NETWORK_FEE_NUM) || 0.05).toFixed(4);
+    for (const acct of subAccts) {
+      const outRes = await numistaRpc._walletRpc('get_transfers', { out: true, account_index: acct.account_index }).catch(() => null);
+      const txs = outRes?.out || [];
+      const atIdx = String(acct.label || '').indexOf('@');
+      const hashIdx = String(acct.label || '').lastIndexOf('#');
+      const uname = atIdx !== -1 ? acct.label.slice(atIdx + 1, hashIdx !== -1 ? hashIdx : undefined).trim().toLowerCase() : `unknown_${acct.account_index}`;
+      for (const tx of txs) {
+        if (!tx.txid || settled[tx.txid]) continue;
+        const grossNum = +(Number(tx.amount || 0) / 1e12).toFixed(4);
+        const creditNum = +(grossNum - fee).toFixed(4);
+        if (creditNum < 0.1) { settled[tx.txid] = { skipped: true }; changed = true; continue; }
+        settled[tx.txid] = { username: uname, amount: creditNum, ts: new Date().toISOString() };
+        changed = true;
+        const steps = [];
+        const assetExists = await chainAdapter.getAsset(NUM_ASSET_ID).catch(() => null);
+        if (!assetExists) steps.push({ key: 'create_currency', label: 'Create NUM currency asset', operation: { kind: 'create_asset', accountIndex: 0, assetId: NUM_ASSET_ID, assetType: CURRENCY_ASSET_TYPE, maxSupply: 0, metadataHash: metadataHash(CURRENCY_SCHEMA) } });
+        const existingReg = chainLedger.getUsernameRecord(uname) || await chainAdapter.getUsernameKey(uname).catch(() => null);
+        if (!existingReg) { const reg = chainLedger.ensureUsernameKey(uname); steps.push({ key: 'register_user', label: `Register @${uname}`, operation: { kind: 'register_username', accountIndex: 0, username: uname, key: reg.publicKey } }); }
+        steps.push({ key: 'mint', label: `Auto-mint ${creditNum} in-game NUM for @${uname}`, operation: { kind: 'mint', accountIndex: 0, assetId: NUM_ASSET_ID, assetType: CURRENCY_ASSET_TYPE, recipient: uname, amountUnits: toUnits(creditNum) } });
+        chainLedger.addPending(uname, creditNum);
+        mintQueue.enqueue({ type: 'currency_mint', username: uname, snapshot: { amount: creditNum, nativeTxHash: tx.txid }, steps });
+      }
+    }
+    if (changed) saveSettledDeposits(settled);
+  } catch {}
+}
+setInterval(reconcilePlayerNativeConversions, 20000);
+setTimeout(reconcilePlayerNativeConversions, 5000);
+app.listen(CONFIG.PORT, () => {
     console.log(`[Goldnumista] Server active on http://localhost:${CONFIG.PORT}`);
   });
 }

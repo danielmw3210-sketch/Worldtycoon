@@ -1408,7 +1408,7 @@ async function reconcilePlayerNativeConversions() {
         const assetExists = await chainAdapter.getAsset(NUM_ASSET_ID).catch(() => null);
         if (!assetExists) steps.push({ key: 'create_currency', label: 'Create NUM currency asset', operation: { kind: 'create_asset', accountIndex: 0, assetId: NUM_ASSET_ID, assetType: CURRENCY_ASSET_TYPE, maxSupply: 0, metadataHash: metadataHash(CURRENCY_SCHEMA) } });
         const existingReg = chainLedger.getUsernameRecord(uname) || await chainAdapter.getUsernameKey(uname).catch(() => null);
-        if (!existingReg) { const reg = chainLedger.ensureUsernameKey(uname); steps.push({ key: 'register_user', label: `Register @${uname}`, operation: { kind: 'register_username', accountIndex: 0, username: uname, key: reg.publicKey } }); }
+        if (!existingReg) { const pubKey = crypto.randomBytes(32).toString('hex'); steps.push({ key: 'register_user', label: `Register @${uname}`, operation: { kind: 'register_username', accountIndex: 0, username: uname, key: pubKey } }); }
         steps.push({ key: 'mint', label: `Auto-mint ${creditNum} in-game NUM for @${uname}`, operation: { kind: 'mint', accountIndex: 0, assetId: NUM_ASSET_ID, assetType: CURRENCY_ASSET_TYPE, recipient: uname, amountUnits: toUnits(creditNum) } });
         chainLedger.addPending(uname, creditNum);
         mintQueue.enqueue({ type: 'currency_mint', username: uname, snapshot: { amount: creditNum, nativeTxHash: tx.txid }, steps });

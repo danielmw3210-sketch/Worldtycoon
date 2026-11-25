@@ -453,6 +453,7 @@ app.post('/api/mint/issue', (req, res) => {
   }
 });
 
+app.get("/api/mints/my-coins", (req, res) => { const u = requireSessionUser(req, res); if (!u) return; const batches = gameStore.getMintLedger(500).filter(b => String(b.mintedBy || "").toLowerCase() === u); const coins = batches.flatMap(b => b.coins || []); res.json({ batches, coins }); });
 app.get('/api/mints', (req, res) => {
   res.json({ mints: gameStore.getMintLedger(Number(req.query.limit) || 100) });
 });

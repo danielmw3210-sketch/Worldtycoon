@@ -321,7 +321,35 @@ export default function AccountModal() {
             )}
           </div>
         </div>
-      <div className="p-3.5 rounded-xl bg-slate-900 border border-amber-500/30 space-y-2.5">
+      <div className="p-3.5 rounded-xl bg-slate-900 border border-yellow-500/30 space-y-2.5">
+  <div className="flex items-center justify-between">
+    <span className="text-xs font-bold text-yellow-300">Royal Numismatic Coin Vault (1662–1919)</span>
+    <button type="button" onClick={async () => {
+      const r = await fetch('/api/mints/my-coins', { headers: user?.token ? { Authorization: 'Bearer ' + user.token } : {} });
+      const d = await r.json();
+      if (r.ok) {
+        const el = document.getElementById('coin-vault-list');
+        if (el) el.innerHTML = (d.coins || []).length === 0
+          ? '<div class="text-[11px] text-slate-500">No pre-1920 coins struck yet. Visit any Royal Mint plot to strike coinage!</div>'
+          : (d.coins || []).map(c => {
+              const col = c.badge === 'mythic' ? 'text-fuchsia-300 border-fuchsia-500/40 bg-fuchsia-950/30'
+                : c.badge === 'ultra_rare' ? 'text-amber-300 border-amber-500/40 bg-amber-950/30'
+                : c.badge === 'rare' ? 'text-sky-300 border-sky-500/40 bg-sky-950/30'
+                : c.badge === 'uncommon' ? 'text-emerald-300 border-emerald-500/40 bg-emerald-950/30'
+                : 'text-slate-300 border-slate-700 bg-slate-950';
+              return '<div class="p-2 rounded-lg border ' + col + ' flex items-center justify-between gap-2 text-[11px]">'
+                + '<div><div class="font-bold">' + c.year + ' ' + c.name + ' · <span class="uppercase text-[10px]">' + c.rarity + ' (' + c.collectorMult + 'x)</span></div>'
+                + '<div class="text-[10px] opacity-80">' + c.ruler + ' · ' + c.weightGrams + 'g (' + (c.purity * 100).toFixed(2) + '% ' + c.metal + ')</div></div>'
+                + '<div class="font-mono text-[10px] select-all bg-black/40 px-1.5 py-0.5 rounded">' + c.serial + '</div></div>';
+            }).join('');
+      }
+    }} className="px-2.5 py-1 rounded-lg bg-yellow-600 hover:bg-yellow-500 text-white text-[10px] font-bold">Load My Coins</button>
+  </div>
+  <div id="coin-vault-list" className="space-y-1.5 max-h-56 overflow-y-auto">
+    <div className="text-[11px] text-slate-400">Click "Load My Coins" to inspect dates, monarchs, rarity tiers & serials for Auction House trading.</div>
+  </div>
+</div>
+<div className="p-3.5 rounded-xl bg-slate-900 border border-amber-500/30 space-y-2.5">
   <div className="flex items-center justify-between">
     <span className="text-xs font-bold text-amber-300">Peerage & Royal Titles Registry</span>
     <span className="text-[10px] font-mono text-slate-400">100% Sovereign Vault</span>

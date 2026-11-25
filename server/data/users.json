@@ -1,0 +1,44 @@
+{
+  "savedAt": "2026-11-25T15:29:22.018Z",
+  "users": [
+    {
+      "username": "danie",
+      "password": "password123",
+      "role": "admin",
+      "createdAt": "2026-11-18T12:00:00Z",
+      "wallet": {
+        "balance": 0,
+        "unlockedBalance": 0,
+        "pendingBalance": 0,
+        "lockedBalance": 0,
+        "transfers": []
+      }
+    },
+    {
+      "username": "mercantile",
+      "password": "password123",
+      "role": "user",
+      "createdAt": "2026-11-18T13:00:00Z",
+      "wallet": {
+        "balance": 0,
+        "unlockedBalance": 0,
+        "pendingBalance": 0,
+        "lockedBalance": 0,
+        "transfers": []
+      }
+    },
+    {
+      "username": "crown_treasury",
+      "password": "c358c4e5770eef47f53371b9e881bf9ee1eb",
+      "role": "institution",
+      "createdAt": "2026-11-25T15:29:22.015Z",
+      "wallet": {
+        "balance": 0,
+        "unlockedBalance": 0,
+        "pendingBalance": 0,
+        "lockedBalance": 0,
+        "transfers": []
+      }
+    }
+  ]
+}

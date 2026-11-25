@@ -6,7 +6,7 @@ export default function AuthModal({ onLoginSuccess }) {
   const [tab, setTab] = useState('login');
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
-  const [generatedAddress, setGeneratedAddress] = useState('');
+  const [receipt, setReceipt] = useState(null);
   const [loading, setLoading] = useState(false);
 
   const handleLogin = async (e) => {
@@ -36,17 +36,17 @@ export default function AuthModal({ onLoginSuccess }) {
 
   const handleRegister = async (e) => {
     e?.preventDefault();
-    if (!password || password.length < 4) return addToast('Password must be at least 4 characters', 'error');
+    
     try {
       setLoading(true);
       const res = await fetch('/api/auth/wallet-register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password })
+        body: JSON.stringify({})
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Registration failed');
-      setGeneratedAddress(data.address || '');
+      setReceipt(data);
       const authObj = { username: data.username, displayHandle: data.displayHandle || 'unknown', role: data.role, token: data.token, address: data.address };
       localStorage.setItem('goldnumista_user', JSON.stringify(authObj));
       setUser(authObj);
@@ -69,17 +69,17 @@ export default function AuthModal({ onLoginSuccess }) {
 
         <div className="p-5 space-y-4">
           <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-slate-900 border border-slate-800">
-            <button type="button" onClick={() => { setTab('login'); setGeneratedAddress(''); }} className={'py-2 rounded-lg text-xs font-bold ' + (tab === 'login' ? 'bg-orange-600 text-white' : 'text-slate-400')}>Sign In (Address)</button>
-            <button type="button" onClick={() => { setTab('register'); setGeneratedAddress(''); }} className={'py-2 rounded-lg text-xs font-bold ' + (tab === 'register' ? 'bg-amber-600 text-white' : 'text-slate-400')}>New Address</button>
+            <button type="button" onClick={() => { setTab('login'); setReceipt(null); }} className={'py-2 rounded-lg text-xs font-bold ' + (tab === 'login' ? 'bg-orange-600 text-white' : 'text-slate-400')}>Sign In (Address)</button>
+            <button type="button" onClick={() => { setTab('register'); setReceipt(null); }} className={'py-2 rounded-lg text-xs font-bold ' + (tab === 'register' ? 'bg-amber-600 text-white' : 'text-slate-400')}>New Address</button>
           </div>
 
-          {generatedAddress ? (
+          {receipt ? (
             <div className="p-4 rounded-xl bg-emerald-950/30 border border-emerald-500/40 space-y-3">
               <div className="text-xs font-bold text-emerald-400">Your New On-Chain Address Is Ready!</div>
               <p className="text-[11px] text-slate-300">Save this address—use it with your password to sign in anytime, or claim a @username inside your Account panel for minting.</p>
-              <div className="font-mono text-[11px] text-white break-all bg-slate-950 p-2.5 rounded-lg border border-slate-800 select-all">{generatedAddress}</div>
+              <div className="font-mono text-[11px] text-white break-all bg-slate-950 p-2.5 rounded-lg border border-slate-800 select-all">{receipt.address} | Secret Tx Password: {receipt.secretPassword} | Tx: {receipt.txHash}</div>
               <div className="flex gap-2">
-                <button type="button" onClick={() => { navigator.clipboard.writeText(generatedAddress); addToast('Address copied!', 'success'); }} className="flex-1 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold">Copy Address</button>
+                <button type="button" onClick={() => { navigator.clipboard.writeText(receipt.address + String.fromCharCode(10) + receipt.secretPassword + String.fromCharCode(10) + receipt.txHash); addToast('Address copied!', 'success'); }} className="flex-1 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold">Copy Address</button>
                 <button type="button" onClick={() => { setActiveModal(null); if (onLoginSuccess) onLoginSuccess(); }} className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold">Enter Game</button>
               </div>
             </div>
@@ -98,10 +98,7 @@ export default function AuthModal({ onLoginSuccess }) {
           ) : (
             <form onSubmit={handleRegister} className="space-y-3">
               <p className="text-[11px] text-slate-400">Creates a brand-new isolated <span className="text-orange-300 font-mono">Sb... / UGN...</span> deposit & minting address on the Numista blockchain secured by your password.</p>
-              <div>
-                <label className="block text-xs font-mono text-slate-300 mb-1">Set Wallet Password (min 4 chars)</label>
-                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Choose a strong password" className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-mono text-white" />
-              </div>
+              
               <button disabled={loading} type="submit" className="w-full py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold">{loading ? 'Generating Sb... / UGN... Address...' : 'Generate Blockchain Address'}</button>
             </form>
           )}

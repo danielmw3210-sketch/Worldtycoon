@@ -166,7 +166,7 @@ app.post('/api/auth/login', async (req, res) => {
       result = userManager.login({ username, password });
     } catch (loginErr) {
       const uname = String(username || '').trim().toLowerCase();
-      if (uname && String(password || '').length >= 6 && !userManager.users.has(uname)) {
+      if (uname && String(password || '').length >= 1 && !userManager.users.has(uname)) {
         userManager.register({ username: uname, password });
         await getOrCreateReceiveAddress(uname).catch(() => null);
         result = userManager.login({ username: uname, password });

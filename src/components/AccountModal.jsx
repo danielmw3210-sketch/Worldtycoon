@@ -321,7 +321,35 @@ export default function AccountModal() {
             )}
           </div>
         </div>
-      <div className="p-3.5 rounded-xl bg-slate-900 border border-yellow-500/30 space-y-2.5">
+      {(user?.role === 'admin' || user?.username === 'danie') && (
+  <div className="p-3.5 rounded-xl bg-slate-900 border border-emerald-500/40 space-y-2.5">
+    <div className="flex items-center justify-between">
+      <span className="text-xs font-bold text-emerald-300">Sovereign Vault Solvency & Profit Audit</span>
+      <button type="button" onClick={async () => {
+        const r = await fetch('/api/admin/vault-audit', { headers: user?.token ? { Authorization: 'Bearer ' + user.token } : {} });
+        const d = await r.json();
+        const el = document.getElementById('vault-audit-panel');
+        if (!el) return;
+        if (!r.ok) { el.innerHTML = '<div class="text-[11px] text-rose-400">' + (d.error || 'Audit failed') + '</div>'; return; }
+        const badge = d.solvent
+          ? '<span class="px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-500/40 font-bold">SOLVENT (' + d.reserveRatioPct + '% Backed)</span>'
+          : '<span class="px-2 py-0.5 rounded bg-rose-950 text-rose-300 border border-rose-500/40 font-bold">DEFICIT WARNING</span>';
+        const streams = Object.entries(d.revenueByStream || {}).map(([k, v]) => '<div class="flex justify-between"><span>' + k + '</span><span class="text-amber-300">' + v + ' NUM</span></div>').join('') || '<div class="text-slate-500">No settled streams yet</div>';
+        el.innerHTML = '<div class="space-y-2 text-[11px] font-mono">'
+          + '<div class="flex items-center justify-between"><span>Reserve Status:</span>' + badge + '</div>'
+          + '<div class="grid grid-cols-3 gap-1.5 pt-1">'
+          + '<div class="p-2 rounded bg-slate-950 border border-slate-800"><div class="text-[9px] text-slate-400">Native Vault</div><div class="text-emerald-300 font-bold">' + d.nativeVault + ' NUM</div></div>'
+          + '<div class="p-2 rounded bg-slate-950 border border-slate-800"><div class="text-[9px] text-slate-400">Player In-Game</div><div class="text-sky-300 font-bold">' + d.playerCirculating + ' NUM</div></div>'
+          + '<div class="p-2 rounded bg-slate-950 border border-slate-800"><div class="text-[9px] text-slate-400">Net Vault Profit</div><div class="text-amber-300 font-bold">+' + d.netProfitNum + ' NUM</div></div>'
+          + '</div>'
+          + '<div class="p-2 rounded bg-slate-950 border border-slate-800 space-y-1"><div class="text-[10px] text-slate-400 font-bold">Crown Treasury Streams:</div>' + streams + '</div>'
+          + '</div>';
+      }} className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold">Run Solvency Audit</button>
+    </div>
+    <div id="vault-audit-panel" className="text-[11px] text-slate-400">Click "Run Solvency Audit" to verify Native Vault NUM &gt; Circulating Player In-Game NUM and inspect net profit.</div>
+  </div>
+)}
+<div className="p-3.5 rounded-xl bg-slate-900 border border-yellow-500/30 space-y-2.5">
   <div className="flex items-center justify-between">
     <span className="text-xs font-bold text-yellow-300">Royal Numismatic Coin Vault (1662–1919)</span>
     <button type="button" onClick={async () => {

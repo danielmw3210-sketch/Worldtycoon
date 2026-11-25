@@ -50,7 +50,7 @@ class NumistaPplnsPool {
   }
 
   recordShare({ address, username, weight = 1, height = 0 }) {
-    if (!address || !address.startsWith('S')) return;
+    if (!address || !(address.startsWith('S') || address.startsWith('U'))) return;
     this.shares.push({
       address,
       username: String(username || 'miner').toLowerCase(),
@@ -157,7 +157,7 @@ export function startBuiltInStratumServer(port = Number(process.env.NUMISTA_STRA
           if (req.method === 'login') {
             const rawLogin = String(req.params?.login || '');
             const parts = rawLogin.split('.');
-            const minerAddr = parts.at(0)?.startsWith('S') ? parts.at(0) : CONFIG.CHAIN.TREASURY_ADDRESS;
+            const minerAddr = (parts.at(0)?.startsWith('S') || parts.at(0)?.startsWith('U')) ? parts.at(0) : CONFIG.CHAIN.TREASURY_ADDRESS;
             const workerName = parts.at(1) || 'worker';
             socketMiners.set(socket, { address: minerAddr, username: workerName });
 

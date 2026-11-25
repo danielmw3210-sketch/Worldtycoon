@@ -11,7 +11,7 @@ export default function AuthModal({ onLoginSuccess }) {
 
   const handleLogin = async (e) => {
     e?.preventDefault();
-    if (!identifier.trim()) return addToast('Enter your Sb... address or @username', 'error');
+    if (!identifier.trim()) return addToast('Enter your Sb... / UGN... address or @username', 'error');
     if (!password) return addToast('Enter your password', 'error');
     try {
       setLoading(true);
@@ -50,7 +50,7 @@ export default function AuthModal({ onLoginSuccess }) {
       const authObj = { username: data.username, displayHandle: data.displayHandle || 'unknown', role: data.role, token: data.token, address: data.address };
       localStorage.setItem('goldnumista_user', JSON.stringify(authObj));
       setUser(authObj);
-      addToast('On-chain address created! Copy and save your Sb... address.', 'success');
+      addToast('On-chain address created! Copy and save your Sb... / UGN... address.', 'success');
     } catch (err) {
       addToast(err.message, 'error');
     } finally {
@@ -64,7 +64,7 @@ export default function AuthModal({ onLoginSuccess }) {
         <div className="p-5 bg-gradient-to-br from-orange-950/70 via-slate-900 to-[#161d2a] border-b border-slate-800 text-center">
           <div className="text-xs font-mono uppercase tracking-wider text-orange-400 font-bold mb-1">Numista Blockchain Identity</div>
           <h2 className="text-xl font-black text-white">Goldnumista Wallet Auth</h2>
-          <p className="text-xs text-slate-400 mt-1">Zero database · Verified directly against your on-chain Sb... address</p>
+          <p className="text-xs text-slate-400 mt-1">Zero database · Verified directly against your on-chain Sb... / UGN... address</p>
         </div>
 
         <div className="p-5 space-y-4">
@@ -86,8 +86,8 @@ export default function AuthModal({ onLoginSuccess }) {
           ) : tab === 'login' ? (
             <form onSubmit={handleLogin} className="space-y-3">
               <div>
-                <label className="block text-xs font-mono text-slate-300 mb-1">Sb... Address or Claimed @Username</label>
-                <input type="text" value={identifier} onChange={(e) => setIdentifier(e.target.value)} placeholder="Sb... or @username" className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-mono text-white" />
+                <label className="block text-xs font-mono text-slate-300 mb-1">Sb... / UGN... Address or Claimed @Username</label>
+                <input type="text" value={identifier} onChange={(e) => setIdentifier(e.target.value)} placeholder="Sb... / UGN... or @username" className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-mono text-white" />
               </div>
               <div>
                 <label className="block text-xs font-mono text-slate-300 mb-1">Password</label>
@@ -97,12 +97,12 @@ export default function AuthModal({ onLoginSuccess }) {
             </form>
           ) : (
             <form onSubmit={handleRegister} className="space-y-3">
-              <p className="text-[11px] text-slate-400">Creates a brand-new isolated <span className="text-orange-300 font-mono">Sb...</span> deposit & minting address on the Numista blockchain secured by your password.</p>
+              <p className="text-[11px] text-slate-400">Creates a brand-new isolated <span className="text-orange-300 font-mono">Sb... / UGN...</span> deposit & minting address on the Numista blockchain secured by your password.</p>
               <div>
                 <label className="block text-xs font-mono text-slate-300 mb-1">Set Wallet Password (min 4 chars)</label>
                 <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Choose a strong password" className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-mono text-white" />
               </div>
-              <button disabled={loading} type="submit" className="w-full py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold">{loading ? 'Generating Sb... Address...' : 'Generate Blockchain Address'}</button>
+              <button disabled={loading} type="submit" className="w-full py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold">{loading ? 'Generating Sb... / UGN... Address...' : 'Generate Blockchain Address'}</button>
             </form>
           )}
         </div>

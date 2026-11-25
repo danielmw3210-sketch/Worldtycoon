@@ -745,7 +745,7 @@ class NumistaRpcBridge {
         ))
       )
     );
-    if (!acct && id.startsWith('S')) {
+    if (!acct && (id.startsWith('S') || id.startsWith('U'))) {
       for (const a of (all?.subaddress_accounts || []).filter(x => x.account_index > 0)) {
         const addrInfo = await this._walletRpc('get_address', { account_index: a.account_index }).catch(() => null);
         if ((addrInfo?.addresses || []).some(sub => sub.address === id)) { acct = a; break; }

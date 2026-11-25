@@ -745,9 +745,7 @@ class NumistaRpcBridge {
       txHash = op.txHash;
       const txInfo = await this._daemonRaw('get_transactions', { txs_hashes: [txHash], decode_as_json: true }).catch(() => null);
       blockHeight = txInfo?.txs?.block_height ?? null;
-    } catch (err) {
-      txHash = crypto.createHash('sha256').update('genesis-anchor:' + uname + ':' + res.address).digest('hex');
-    }
+    } catch (err) { throw new Error('On-chain username tx failed: ' + err.message); }
     const secretPassword = this.deriveTxSecret(txHash, uname);
     return {
       accountIndex: res.account_index,

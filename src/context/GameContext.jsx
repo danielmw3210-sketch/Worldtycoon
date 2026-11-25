@@ -4,7 +4,7 @@ const GameContext = createContext(null);
 
 export function GameProvider({ children }) {
   // Auth & User State
-  const [user, setUser, setUser] = useState(() => {
+  const [user, setUser] = useState(() => {
     try {
       const saved = localStorage.getItem('goldnumista_user');
       return saved ? JSON.parse(saved) : null;

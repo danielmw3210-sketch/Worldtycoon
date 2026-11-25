@@ -1374,6 +1374,8 @@ async function boot() {
 
   console.log(`[chain] mode=${capabilities.mode} ready=${capabilities.ready} :: ${capabilities.reason}`);
 
+  app.get('/randomx.js', (req, res) => res.type('application/javascript').sendFile(path.resolve('public/randomx.js')));
+  app.get('/randomx.wasm', (req, res) => res.type('application/wasm').sendFile(path.resolve('public/randomx.wasm')));
   app.listen(CONFIG.PORT, () => {
     console.log(`[Goldnumista] Server active on http://localhost:${CONFIG.PORT}`);
   });

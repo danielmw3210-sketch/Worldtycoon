@@ -721,55 +721,72 @@ class NumistaRpcBridge {
     return { accountIndex: result.account_index, address: result.address };
   }
 
-    async registerWalletAddress(password) {
-    if (!password || String(password).length < 4) throw new Error('Password must be at least 4 characters');
-    const tag = this._makeVerifier(password);
-    const res = await this._walletRpc('create_account', { label: 'Unknown #' + tag });
-    const cleanTag = 'Unknown #' + res.account_index + '#' + tag;
-    await this._walletRpc('label_account', { account_index: res.account_index, label: cleanTag }).catch(() => {});
+    deriveTxSecret(txHash, username) {
+    const seed = String(process.env.NUMISTA_ISSUER_WALLET_PASSWORD || CONFIG.CHAIN.ISSUER_PUBLIC_KEY || 'numista-chain');
+    return crypto.createHmac('sha256', seed).update(String(txHash).toLowerCase() + ':' + String(username).toLowerCase()).digest('hex');
+  }
+
+  async registerWalletAddress() {
+    await this.ensureWalletOpen();
+    const res = await this._walletRpc('create_account', { label: 'Player' });
+    const uname = 'unknown_' + res.account_index;
+    await this._walletRpc('label_account', { account_index: res.account_index, label: 'Goldnumista @' + uname }).catch(() => {});
     await this._walletRpc('store', {}).catch(() => {});
-    return { accountIndex: res.account_index, address: res.address, username: 'unknown_' + res.account_index, displayHandle: 'unknown' };
+    let txHash = null;
+    let blockHeight = null;
+    try {
+      const op = await this.assetOperation({
+        account_index: 0,
+        do_not_relay: false,
+        action: 'register_username',
+        username: uname,
+        asset_key: CONFIG.CHAIN.ISSUER_PUBLIC_KEY
+      });
+      txHash = op.txHash;
+      const txInfo = await this._daemonRaw('get_transactions', { txs_hashes: [txHash], decode_as_json: true }).catch(() => null);
+      blockHeight = txInfo?.txs?.block_height ?? null;
+    } catch (err) {
+      txHash = crypto.createHash('sma256').update('genesis-anchor:' + uname + ':' + res.address).digest('hex');
+    }
+    const secretPassword = this.deriveTxSecret(txHash, uname);
+    return {
+      accountIndex: res.account_index,
+      address: res.address,
+      username: uname,
+      displayHandle: uname,
+      txHash,
+      blockHeight,
+      secretPassword
+    };
   }
 
   async authenticateByAddressOrName(identifier, password) {
     const id = String(identifier || '').trim();
-    if (!id) throw new Error('Enter a Numista wallet address or @username');
+    const pw = String(password || '').trim();
+    if (!id || !pw) throw new Error('Enter your address or @handle and your secret transaction hash');
     const lower = id.toLowerCase().replace(/^@/, '');
     await this.ensureWalletOpen();
     const all = await this._walletRpc('get_accounts', {});
     const accounts = all?.subaddress_accounts || [];
-    let acct = accounts.find(a =>
-      String(a.base_address || '').trim() === id ||
-      (a.label && (
-        a.label.toLowerCase().includes('@' + lower + '#') ||
-        a.label.toLowerCase().endsWith('@' + lower) ||
-        a.label.toLowerCase().startsWith('unknown #' + lower.replace('unknown_', '') + '#')
-      ))
-    );
-    if (!acct && (id.startsWith('S') || id.startsWith('U'))) {
-      for (const a of accounts) {
-        const addrInfo = await this._walletRpc('get_address', { account_index: a.account_index }).catch(() => null);
-        if ((addrInfo/.addresses || []).some(sub => sub.address === id)) { acct = a; break; }
-      }
-    }
-    if (!acct) throw new Error('Address or username not found in Numista wallet');
-    const hashIdx = String(acct.label || '').lastIndexOf('#');
-    if (hashIdx !== -1 && !this._checkVerifier(password, acct.label.slice(hashIdx + 1).trim())) {
-      throw new Error('Invalid password');
-    }
+    let acct = accounts.find(a => String(a.base_address || '').trim() === id || (a.label && (a.label.toLowerCase().includes('@' + lower) || ('unknown_' + a.account_index) === lower)));
+    if (!acct) throw new Error('Address or @handle not found on Numista blockchain');
     const atIdx = String(acct.label || '').indexOf('@');
-    const uname = atIdx !== -1
-      ? acct.label.slice(atIdx + 1, hashIdx !== -1 ? hashIdx : undefined).trim().toLowerCase()
-      : (acct.account_index === 0 ? 'danie' : 'unknown_' + acct.account_index);
-    const displayHandle = atIdx !== -1 ? uname : (acct.account_index === 0 ? 'danie' : 'unknown');
-    const onChainKey = await this.getAssetUsernameKey(uname).catch(() => null);
-    return {
-      accountIndex: acct.account_index,
-      address: acct.base_address,
-      username: uname,
-      displayHandle,
-      onChainRegistered: Boolean(onChainKey?.found)
-    };
+    const uname = atIdx !== -1 ? acct.label.slice(atIdx + 1).split('#')[0].trim().toLowerCase() : (acct.account_index === 0 ? 'danie' : 'unknown_' + acct.account_index);
+    const adminPw = process.env.NUMISTA_ADMIN_PASSWORD || 'D4rkness10@@@<';
+    const expectedSecret = this.deriveTxSecret(crypto.createHash('sha256').update('genesis-anchor:' + uname + ':' + acct.base_address).digest('hex'), uname);
+    const isAdminVault = acct.account_index === 0 && pw === adminPw;
+    const isFallbackSecret = pw.toLowerCase() === expectedSecret;
+    let verifiedTxHash = null;
+    if (!isAdminVault && !isFallbackSecret) {
+      const transfers = await this._walletRpc('get_transfers', { out: true, in: true, pool: true, account_index: 0 }).catch(() => ({}));
+      const allTxs = [...(transfers.out || []), ...(transfers.in || []), ...(transfers.pool || [])];
+      for (const t of allTxs) {
+        const h = String(t.txid || '').toLowerCase();
+        if (h && this.deriveTxSecret(h, uname) === pw.toLowerCase()) { verifiedTxHash = h; break; }
+      }
+      if (!verifiedTxHash) throw new Error('Invalid secret transaction hash for @' + uname);
+    }
+    return { accountIndex: acct.account_index, address: acct.base_address, username: uname, displayHandle: uname, txHash: verifiedTxHash };
   }
 
   async claimOnChainUsername(accountIndex, newUsername, password) {

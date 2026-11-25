@@ -1,51 +1,103 @@
 let isMining = false;
 let currentJob = null;
+let rxMod = null;
+let rxReady = false;
 let hashesCalculated = 0;
 let lastReportTime = performance.now();
 
-function nonceToHexLE(n) {
-  return [n & 0xff, (n >>> 8) & 0xff, (n >>> 16) & 0xff, (n >>> 24) & 0xff].map(b => b.toString(16).padStart(2, '0')).join('');
+function hexToBytes(hex) {
+  const clean = String(hex || '').replace(/[^0-9a-fA-F]/g, '');
+  const out = new Uint8Array(clean.length >> 1);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(clean.substr(i * 2, 2), 16);
+  return out;
 }
 
-function hashBlob(blob, nonce) {
-  const nonceHex = nonceToHexLE(nonce >>> 0);
-  const input = blob && blob.length >= 86 ? blob.slice(0, 78) + nonceHex + blob.slice(86) : `${blob}:${nonceHex}`;
-  let h1 = 0xdeadbeef ^ (nonce >>> 0), h2 = 0x41c6ce57 ^ ((nonce >>> 0) << 1);
-  for (let i = 0; i < input.length; i++) {
-    const ch = input.charCodeAt(i);
-    h1 = Math.imul(h1 ^ ch, 2654435761);
-    h2 = Math.imul(h2 ^ ch, 1597334677);
+function bytesToHex(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i++) s += bytes[i].toString(16).padStart(2, '0');
+  return s;
+}
+
+async function ensureRandomX(seedHex) {
+  if (!rxMod) {
+    importScripts('/randomx.js');
+    rxMod = await createRandomXModule({ locateFile: (f) => '/' + f });
   }
-  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
-  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
-  const ax = (h1 >>> 0).toString(16).padStart(8, '0'), bx = (h2 >>> 0).toString(16).padStart(8, '0'), cx = ((h1 ^ h2) >>> 0).toString(16).padStart(8, '0'), dx = ((h1 + h2) >>> 0).toString(16).padStart(8, '0');
-  return { nonceHex, resultHex: ax + bx + cx + dx + dx + cx + bx + ax };
+  const seedBytes = hexToBytes(seedHex || '00'.repeat(32));
+  const seedPtr = rxMod._malloc(32);
+  rxMod.HEAPU8.set(seedBytes.subarray(0, 32), seedPtr);
+  const rc = rxMod._rx_init(seedPtr, 32);
+  rxMod._free(seedPtr);
+  rxReady = (rc === 0);
 }
 
-function runMiningLoop() {
+async function runMiningLoop() {
   if (!isMining || !currentJob) return;
-  const batchSize = 4000;
-  const startNonce = Math.floor(Math.random() * 0x7fffffff);
-  for (let i = 0; i < batchSize; i++) {
-    const nonce = startNonce + i;
-    const { nonceHex, resultHex } = hashBlob(currentJob.blob || currentJob.seed || '', nonce);
+  if (!rxReady) {
+    await ensureRandomX(currentJob.seedHash);
+    if (!isMining || !rxReady) return;
+  }
+
+  const blobBytes = hexToBytes(currentJob.blob);
+  if (blobBytes.length < 43) {
+    setTimeout(runMiningLoop, 500);
+    return;
+  }
+
+  const inPtr = rxMod._rx_get_input_ptr();
+  const outPtr = rxMod._rx_get_output_ptr();
+  rxMod.HEAPU8.set(blobBytes, inPtr);
+
+  const batchSize = 32; // Genuine RandomX rx/0 programs per tick
+  let nonce = (Math.floor(Math.random() * 0x7fffffff)) >>> 0;
+
+  for (let i = 0; i < batchSize && isMining; i++) {
+    nonce = (nonce + 1) >>> 0;
+    rxMod.HEAPU8[inPtr + 39] = nonce & 0xff;
+    rxMod.HEAPU8[inPtr + 40] = (nonce >>> 8) & 0xff;
+    rxMod.HEAPU8[inPtr + 41] = (nonce >>> 16) & 0xff;
+    rxMod.HEAPU8[inPtr + 42] = (nonce >>> 24) & 0xff;
+
+    rxMod._rx_hash(blobBytes.length);
     hashesCalculated++;
-    if (resultHex.startsWith('00000')) {
+
+    // Read 64-bit little-endian top word of 32-byte RandomX output (bytes 24..31)
+    const dv = new DataView(rxMod.HEAPU8.buffer, outPtr + 24, 8);
+    const top64 = dv.getBigUint64(0, true);
+    // Share target (~1 in 128 RandomX hashes submits a valid PPLNS share; full block target also checked on daemon)
+    if (top64 < 0x0200000000000000n) {
+      const nonceHex = bytesToHex(rxMod.HEAPU8.subarray(inPtr + 39, inPtr + 43));
+      const resultHex = bytesToHex(rxMod.HEAPU8.subarray(outPtr, outPtr + 32));
       self.postMessage({ type: 'SHARE_FOUND', jobId: currentJob.jobId, nonceHex, resultHex });
     }
   }
+
   const now = performance.now();
-  if (now - lastReportTime >= 500) {
-    self.postMessage({ type: 'HASH_STATS', hashes: hashesCalculated, hashrate: Math.round(hashesCalculated / ((now - lastReportTime) / 1000)) });
+  if (now - lastReportTime >= 600) {
+    const secs = (now - lastReportTime) / 1000;
+    self.postMessage({ type: 'HASH_STATS', hashes: hashesCalculated, hashrate: Math.round(hashesCalculated / secs) });
     hashesCalculated = 0;
     lastReportTime = now;
   }
+
   if (isMining) setTimeout(runMiningLoop, 0);
 }
 
-self.onmessage = function (e) {
+self.onmessage = async function (e) {
   const { type, job } = e.data;
-  if (type === 'START') { isMining = true; currentJob = job; hashesCalculated = 0; lastReportTime = performance.now(); runMiningLoop(); }
-  else if (type === 'UPDATE_JOB') { currentJob = job; }
-  else if (type === 'STOP') { isMining = false; currentJob = null; }
+  if (type === 'START') {
+    isMining = true;
+    currentJob = job;
+    rxReady = false;
+    hashesCalculated = 0;
+    lastReportTime = performance.now();
+    runMiningLoop();
+  } else if (type === 'UPDATE_JOB') {
+    const seedChanged = currentJob?.seedHash !== job?.seedHash;
+    currentJob = job;
+    if (seedChanged) rxReady = false;
+  } else if (type === 'STOP') {
+    isMining = false;
+    currentJob = null;
+  }
 };

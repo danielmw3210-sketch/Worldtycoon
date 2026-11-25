@@ -284,10 +284,10 @@ const register = async (username, password) => {
       if (!res.ok) throw new Error(data.error || 'Failed to connect Stratum pool');
       setStratumStatus(data);
       stopMiningWorkers();
-      const job = { jobId: data.jobId || 'stratum-job', blob: data.seedHash || data.jobId || 'numista' };
+      const job = { jobId: data.jobId || 'stratum-job', blob: data.blob || '', seedHash: data.seedHash || '00'.repeat(32), target: data.target || 'b88d0600' };
       const wList = [];
       for (let i = 0; i < threads; i++) {
-        const w = new Worker(new URL('../workers/miner.worker.js', import.meta.url), { type: 'module' });
+        const w = new Worker(new URL('../workers/miner.worker.js', import.meta.url));
         w.onmessage = async (ev) => {
           if (ev.data.type === 'HASH_STATS') { setTotalHashes(p => p + ev.data.hashes); setHashrate(ev.data.hashrate * threads); }
           else if (ev.data.type === 'SHARE_FOUND') {

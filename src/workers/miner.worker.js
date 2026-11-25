@@ -38,7 +38,7 @@ async function runMiningLoop() {
     if (!isMining || !rxReady) return;
   }
 
-  const blobBytes = hexToBytes(currentJob.blob);
+  const blobBytes = hexToBytes(currentJob.blob || '00'.repeat(76));
   if (blobBytes.length < 43) {
     setTimeout(runMiningLoop, 500);
     return;
@@ -48,7 +48,7 @@ async function runMiningLoop() {
   const outPtr = rxMod._rx_get_output_ptr();
   new Uint8Array(rxMem.buffer).set(blobBytes, inPtr);
 
-  const batchSize = 32; // Genuine RandomX rx/0 programs per tick
+  const batchSize = 4; // Genuine RandomX rx/0 programs per tick
   let nonce = (Math.floor(Math.random() * 0x7fffffff)) >>> 0;
 
   for (let i = 0; i < batchSize && isMining; i++) {
@@ -73,7 +73,7 @@ async function runMiningLoop() {
   }
 
   const now = performance.now();
-  if (now - lastReportTime >= 600) {
+  if (now - lastReportTime >= 250) {
     const secs = (now - lastReportTime) / 1000;
     self.postMessage({ type: 'HASH_STATS', hashes: hashesCalculated, hashrate: Math.round(hashesCalculated / secs) });
     hashesCalculated = 0;

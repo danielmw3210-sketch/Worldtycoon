@@ -736,7 +736,7 @@ class NumistaRpcBridge {
     const lower = id.toLowerCase().replace(/^@/, '');
     const all = await this._walletRpc('get_accounts', {}).catch(() => null);
     let acct = (all?.subaddress_accounts || []).find(a =>
-      a.account_index > 0 && (
+      a.account_index >= 0 && (
         String(a.base_address || '').trim() === id ||
         (a.label && (
           a.label.toLowerCase().includes('@' + lower + '#') ||
@@ -746,7 +746,7 @@ class NumistaRpcBridge {
       )
     );
     if (!acct && (id.startsWith('S') || id.startsWith('U'))) {
-      for (const a of (all?.subaddress_accounts || []).filter(x => x.account_index > 0)) {
+      for (const a of (all?.subaddress_accounts || []).filter(x => x.account_index >= 0)) {
         const addrInfo = await this._walletRpc('get_address', { account_index: a.account_index }).catch(() => null);
         if ((addrInfo?.addresses || []).some(sub => sub.address === id)) { acct = a; break; }
       }

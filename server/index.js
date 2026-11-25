@@ -1130,14 +1130,14 @@ app.post('/api/wallet/convert-to-game', async (req, res) => {
           accountIndex: 0,
           assetId: NUM_ASSET_ID,
           assetType: CURRENCY_ASSET_TYPE,
-          maxSupply: 0,
+          maxSupply: CONFIG.CHAIN.MAX_SUPPLY_UNITS,
           metadataHash: metadataHash(CURRENCY_SCHEMA)
         }
       });
     }
     const existingReg = chainLedger.getUsernameRecord(username) || await chainAdapter.getUsernameKey(username);
     if (!existingReg) {
-      const reg = chainLedger.ensureUsernameKey(username);
+      
       steps.push({
         key: 'register_user',
         label: `Register @${username} on-chain`,
@@ -1145,7 +1145,7 @@ app.post('/api/wallet/convert-to-game', async (req, res) => {
           kind: 'register_username',
           accountIndex: 0,
           username,
-          key: reg.publicKey
+          key: CONFIG.CHAIN.ISSUER_PUBLIC_KEY
         }
       });
     }

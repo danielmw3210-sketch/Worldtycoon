@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useGame } from '../context/GameContext';
 export default function BrowserMinerModal() {
-  const { isMining, hashrate, sharesSubmitted, miningMode, setMiningMode, stratumEndpoint, setStratumEndpoint, stratumStatus, setStratumStatus, startMining, stopMining, user, setActiveModal, addToast } = useGame();
+  const { network, isMining, hashrate, sharesSubmitted, miningMode, setMiningMode, stratumEndpoint, setStratumEndpoint, stratumStatus, setStratumStatus, startMining, stopMining, user, setActiveModal, addToast } = useGame();
   const [receiveAddr, setReceiveAddr] = useState('');
   const [accountIndex, setAccountIndex] = useState(null);
   const [copied, setCopied] = useState('');
@@ -21,7 +21,7 @@ export default function BrowserMinerModal() {
           <div><span className='text-[10px] font-mono uppercase font-bold text-orange-400'>RandomX (rx/0) Native Mining</span><h2 className='text-lg font-black text-white'>External Stratum & Solo Miner</h2></div>
           <button onClick={() => setActiveModal(null)} className='text-slate-400 hover:text-white px-2.5 py-1 rounded-lg hover:bg-slate-800'>X</button>
         </div>
-        <div className='p-4 space-y-4'>
+        <div className='p-4 space-y-4'><div className='grid grid-cols-3 gap-2 p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-center font-mono text-[11px]'><div><div className='text-slate-400'>Daemon Height</div><div className='text-emerald-400 font-bold'>#{network?.height || '-'}</div></div><div><div className='text-slate-400'>Net Difficulty</div><div className='text-amber-300 font-bold'>{(network?.difficulty || 0).toLocaleString()}</div></div><div><div className='text-slate-400'>Daemon Status</div><div className='text-cyan-300 font-bold'>{network?.online ? 'ONLINE' : 'OFFLINE'}</div></div></div>
           <div className='grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-slate-900 border border-slate-800'>
             <button disabled={isMining} onClick={() => setMiningMode('pplns')} className={'py-2 rounded-lg text-xs font-bold ' + (miningMode === 'pplns' ? 'bg-orange-600 text-white' : 'text-slate-400')}>External PPLNS Pool</button>
             <button disabled={isMining} onClick={() => setMiningMode('solo')} className={'py-2 rounded-lg text-xs font-bold ' + (miningMode === 'solo' ? 'bg-amber-600 text-white' : 'text-slate-400')}>Solo Mode (100% Direct)</button>

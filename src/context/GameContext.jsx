@@ -322,7 +322,7 @@ const register = async (username, password) => {
         method: 'POST',
         headers: sessionHeaders({ 'Content-Type': 'application/json' })
       });
-      if (res.ok) setStratumStatus(await res.json());
+      setStratumStatus(null);
     } catch {}
     addToast('Disconnected from Stratum pool', 'info');
   };

@@ -1123,7 +1123,7 @@ app.post('/api/wallet/convert-to-game', async (req, res) => {
         label: 'Create fungible NUM currency asset',
         operation: {
           kind: 'create_asset',
-          accountIndex: recv.accountIndex,
+          accountIndex: 0,
           assetId: NUM_ASSET_ID,
           assetType: CURRENCY_ASSET_TYPE,
           maxSupply: 0,
@@ -1139,7 +1139,7 @@ app.post('/api/wallet/convert-to-game', async (req, res) => {
         label: `Register @${username} on-chain`,
         operation: {
           kind: 'register_username',
-          accountIndex: recv.accountIndex,
+          accountIndex: 0,
           username,
           key: reg.publicKey
         }
@@ -1150,7 +1150,7 @@ app.post('/api/wallet/convert-to-game', async (req, res) => {
       label: `Convert ${amount} native NUM to in-game NUM (player-paid gas)`,
       operation: {
         kind: 'mint',
-        accountIndex: recv.accountIndex,
+        accountIndex: 0,
         assetId: NUM_ASSET_ID,
         assetType: CURRENCY_ASSET_TYPE,
         recipient: username,

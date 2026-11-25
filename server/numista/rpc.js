@@ -721,7 +721,63 @@ class NumistaRpcBridge {
     return { accountIndex: result.account_index, address: result.address };
   }
 
-    async registerWalletAddress(password) { if (!password || String(password).length < 4) throw new Error("Password must be at least 4 characters"); const tag = this._makeVerifier(password); const res = await this._walletRpc("create_account", { label: "Player #" + tag }); const cleanTag = "Player #" + res.account_index + "#" + tag; await this._walletRpc("label_account", { account_index: res.account_index, label: cleanTag }).catch(() => {}); return { accountIndex: res.account_index, address: res.address, username: "player_" + res.account_index }; } async authenticateByAddressOrName(identifier, password) { const id = String(identifier || "").trim(); const lower = id.toLowerCase(); const all = await this._walletRpc("get_accounts", {}).catch(() => null); const acct = (all?.subaddress_accounts || []).find(a => a.account_index > 0 && (a.base_address === id || (a.label && (a.label.toLowerCase().includes("@" + lower + "#") || a.label.toLowerCase().endsWith("@" + lower) || a.label.toLowerCase().startsWith("player #" + lower.replace("player_","") + "#"))))); if (!acct) return null; const hashIdx = acct.label.lastIndexOf("#"); if (hashIdx !== -1 && !this._checkVerifier(password, acct.label.slice(hashIdx + 1).trim())) throw new Error("Invalid password"); const atIdx = acct.label.indexOf("@"); const uname = atIdx !== -1 ? acct.label.slice(atIdx + 1, hashIdx !== -1 ? hashIdx : undefined).trim().toLowerCase() : "player_" + acct.account_index; return { accountIndex: acct.account_index, address: acct.base_address, username: uname }; } async claimOnChainUsername(accountIndex, newUsername, password) { const clean = String(newUsername || "").trim().toLowerCase(); if (!/^[a-z0-9._-]{3,24}$/.test(clean)) throw new Error("Username must be 3-24 chars (letters, numbers, ., _, -)"); const existing = await this.findWalletAccount(clean); if (existing && existing.account_index !== accountIndex) throw new Error("Username @" + clean + " is already claimed on-chain"); const tag = this._makeVerifier(password || "default"); await this._walletRpc("label_account", { account_index: accountIndex, label: "Goldnumista @" + clean + "#" + tag }); return clean; }
+    async registerWalletAddress(password) {
+    if (!password || String(password).length < 4) throw new Error('Password must be at least 4 characters');
+    const tag = this._makeVerifier(password);
+    const res = await this._walletRpc('create_account', { label: 'Unknown #' + tag });
+    const cleanTag = 'Unknown #' + res.account_index + '#' + tag;
+    await this._walletRpc('label_account', { account_index: res.account_index, label: cleanTag }).catch(() => {});
+    await this._walletRpc('store', {}).catch(() => {});
+    return { accountIndex: res.account_index, address: res.address, username: 'unknown_' + res.account_index, displayHandle: 'unknown' };
+  }
+
+  async authenticateByAddressOrName(identifier, password) {
+    const id = String(identifier || '').trim();
+    const lower = id.toLowerCase().replace(/^@/, '');
+    const all = await this._walletRpc('get_accounts', {}).catch(() => null);
+    let acct = (all?.subaddress_accounts || []).find(a =>
+      a.account_index > 0 && (
+        String(a.base_address || '').trim() === id ||
+        (a.label && (
+          a.label.toLowerCase().includes('@' + lower + '#') ||
+          a.label.toLowerCase().endsWith('@' + lower) ||
+          a.label.toLowerCase().startsWith('unknown #' + lower.replace('unknown_', '') + '#')
+        ))
+      )
+    );
+    if (!acct && id.startsWith('S')) {
+      for (const a of (all?.subaddress_accounts || []).filter(x => x.account_index > 0)) {
+        const addrInfo = await this._walletRpc('get_address', { account_index: a.account_index }).catch(() => null);
+        if ((addrInfo?.addresses || []).some(sub => sub.address === id)) { acct = a; break; }
+      }
+    }
+    if (!acct) return null;
+    const hashIdx = String(acct.label || '').lastIndexOf('#');
+    if (hashIdx !== -1 && !this._checkVerifier(password, acct.label.slice(hashIdx + 1).trim())) {
+      throw new Error('Invalid password');
+    }
+    const atIdx = String(acct.label || '').indexOf('@');
+    const uname = atIdx !== -1
+      ? acct.label.slice(atIdx + 1, hashIdx !== -1 ? hashIdx : undefined).trim().toLowerCase()
+      : 'unknown_' + acct.account_index;
+    const displayHandle = atIdx !== -1 ? uname : 'unknown';
+    return { accountIndex: acct.account_index, address: acct.base_address, username: uname, displayHandle };
+  }
+
+  async claimOnChainUsername(accountIndex, newUsername, password) {
+    const clean = String(newUsername || '').trim().toLowerCase().replace(/^@/, '');
+    if (!/^[a-z0-9._-]{3,24}$/.test(clean)) throw new Error('Username must be 3-24 chars (letters, numbers, ., _, -)');
+    const existing = await this.findWalletAccount(clean);
+    if (existing && existing.account_index !== accountIndex) throw new Error('Handle @' + clean + ' is already minted on-chain');
+    const all = await this._walletRpc('get_accounts', {}).catch(() => null);
+    const curAcct = (all?.subaddress_accounts || []).find(a => a.account_index === accountIndex);
+    const oldHashIdx = String(curAcct?.label || '').lastIndexOf('#');
+    const existingTag = oldHashIdx !== -1 ? curAcct.label.slice(oldHashIdx + 1).trim() : this._makeVerifier(password || 'default');
+    await this._walletRpc('label_account', { account_index: accountIndex, label: 'Goldnumista @' + clean + '#' + existingTag });
+    await this._walletRpc('store', {}).catch(() => {});
+    return clean;
+  }
+
   async authenticateWalletUser(username, password) {
     const acct = await this.findWalletAccount(username);
     if (!acct) return null;

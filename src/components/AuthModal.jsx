@@ -22,7 +22,7 @@ export default function AuthModal({ onLoginSuccess }) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Login failed');
-      const authObj = { username: data.username, role: data.role, token: data.token, address: data.address };
+      const authObj = { username: data.username, displayHandle: data.displayHandle || 'unknown', role: data.role, token: data.token, address: data.address };
       localStorage.setItem('goldnumista_user', JSON.stringify(authObj));
       setUser(authObj);
       addToast('Signed in to ' + (data.address ? data.address.slice(0, 12) + '...' : data.username), 'success');
@@ -47,7 +47,7 @@ export default function AuthModal({ onLoginSuccess }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Registration failed');
       setGeneratedAddress(data.address || '');
-      const authObj = { username: data.username, role: data.role, token: data.token, address: data.address };
+      const authObj = { username: data.username, displayHandle: data.displayHandle || 'unknown', role: data.role, token: data.token, address: data.address };
       localStorage.setItem('goldnumista_user', JSON.stringify(authObj));
       setUser(authObj);
       addToast('On-chain address created! Copy and save your Sb... address.', 'success');

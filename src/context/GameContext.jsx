@@ -512,7 +512,7 @@ const register = async (username, password) => {
         totalHashes,
         sharesSubmitted,
         minedSessionNum,
-        threads, setThreads, startMining,
+        startMining,
         stopMining,
         // Toasts
         toasts,

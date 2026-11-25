@@ -1402,7 +1402,7 @@ async function boot() {
       const onChainUnits = await numistaRpc.getAssetBalance(NUM_ASSET_ID, uname).catch(() => 0);
       const onChainNum = +(Number(onChainUnits || 0) / Number(CONFIG.CHAIN.UNITS_PER_NUM || 1000)).toFixed(4);
       const delta = +(expectedTotal - onChainNum).toFixed(4);
-      const acc = chainLedger.getAccount(uname);
+      const acc = chainLedger._ensure(uname);
       acc.chainSettled = onChainNum;
       acc.pending = delta > 0 ? delta : 0;
       const alreadyQueued = [...mintQueue.jobs, ...mintQueue.history].some(j => j.type === 'currency_mint' && j.username === uname && Number(j.snapshot?.targetTotal || 0) >= expectedTotal);

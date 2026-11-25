@@ -1,3 +1,4 @@
+import { searchBlockchain } from './numista/chainIndexer.js';
 import fs from 'node:fs';
 import crypto from 'crypto';
 import express from 'express';

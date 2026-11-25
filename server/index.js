@@ -509,7 +509,7 @@ app.post('/api/bank/claim-interest', (req, res) => {
 
 app.get('/api/auctions', (req, res) => {
   res.json({
-    auctions: gameStore.auctions.map(a => ({
+    auctions: gameStore.sweepExpiredAuctions().map(a => ({
       ...a,
       seller: a.seller.startsWith('@') ? a.seller : `@${a.seller}`,
       highestBidder: a.highestBidder ? (a.highestBidder.startsWith('@') ? a.highestBidder : `@${a.highestBidder}`) : null

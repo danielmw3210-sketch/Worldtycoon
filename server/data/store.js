@@ -948,9 +948,11 @@ class GameStore {
     };
   }
 
+    sweepExpiredAuctions() { let changed = false; const now = Date.now(); for (const auc of this.auctions) { if (auc.status === "settled" || auc.status === "expired") continue; if (auc.endsAt && now >= new Date(auc.endsAt).getTime()) { if (auc.highestBidder && Number(auc.currentBid) > 0) { const gross = Number(auc.currentBid); const taxRate = Number(CONFIG.ECONOMY.SECONDARY_MARKET_TAX_RATE || 0.05); const tax = +(gross * taxRate).toFixed(4); const proceeds = +(gross - tax).toFixed(4); this._enqueueNumTransfer({ type: "auction_payout", from: TREASURY, to: auc.seller, amount: proceeds, description: "Auction settled (95%) - " + auc.title }); if (tax > 0) this._enqueueNumTransfer({ type: "auction_market_tax", from: TREASURY, to: TREASURY, amount: tax, description: "5% Secondary Market Vault Tax - " + auc.title }); const plot = auc.plotId ? this.getPlotById(auc.plotId) : null; if (plot) { plot.owner = auc.highestBidder; plot.isClaimed = true; } auc.status = "settled"; } else { auc.status = "expired"; } changed = true; } } if (changed) this.scheduleSave(); return this.auctions; }
   placeBid(auctionId, bidAmount, username) {
+    this.sweepExpiredAuctions();
     const auc = this.auctions.find(a => a.id === auctionId);
-    if (!auc) throw new Error("Auction listing not found");
+    if (!auc) throw new Error("Auction listing not found"); if (auc.status === "expired" || auc.status === "settled" || Date.now() >= new Date(auc.endsAt).getTime()) throw new Error("This auction listing has expired");
     if (bidAmount <= auc.currentBid) {
       throw new Error(`Bid must exceed current highest bid (${auc.currentBid} NUM)`);
     }

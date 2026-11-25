@@ -746,7 +746,7 @@ class NumistaRpcBridge {
       const txInfo = await this._daemonRaw('get_transactions', { txs_hashes: [txHash], decode_as_json: true }).catch(() => null);
       blockHeight = txInfo?.txs?.block_height ?? null;
     } catch (err) {
-      txHash = crypto.createHash('sma256').update('genesis-anchor:' + uname + ':' + res.address).digest('hex');
+      txHash = crypto.createHash('sha256').update('genesis-anchor:' + uname + ':' + res.address).digest('hex');
     }
     const secretPassword = this.deriveTxSecret(txHash, uname);
     return {

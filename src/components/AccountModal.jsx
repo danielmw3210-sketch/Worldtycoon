@@ -321,7 +321,41 @@ export default function AccountModal() {
             )}
           </div>
         </div>
-      <div className="p-3.5 rounded-xl bg-slate-900 border border-orange-500/30 space-y-2"><div className="text-xs font-bold text-orange-300">On-Chain Minting Username (@handle)</div><p className="text-[11px] text-slate-400">Bind a @username to your Sb... address on-chain so Royal Mint coins and land deeds stamp your handle.</p><form onSubmit={async (e) => { e.preventDefault(); const u = e.target.uname.value.trim(); const r = await fetch("/api/auth/claim-username", { method: "POST", headers: { "Content-Type": "application/json", ...(user?.token ? { Authorization: "Bearer " + user.token } : {}) }, body: JSON.stringify({ username: u }) }); const d = await r.json(); if (!r.ok) { addToast(d.error || "Failed", "error"); } else { const updated = { ...user, username: d.username, displayHandle: d.username, token: d.token }; localStorage.setItem("goldnumista_user", JSON.stringify(updated)); addToast("Claimed @" + d.username + " on-chain!", "success"); } }} className="flex gap-2"><input name="uname" type="text" placeholder="e.g. sovereign_king" className="flex-1 px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs font-mono text-white" /><button type="submit" className="px-3 py-1.5 rounded-lg bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold">Mint @Handle (1 NUM)</button></form></div>
+      <div className="p-3.5 rounded-xl bg-slate-900 border border-amber-500/30 space-y-2.5">
+  <div className="flex items-center justify-between">
+    <span className="text-xs font-bold text-amber-300">Peerage & Royal Titles Registry</span>
+    <span className="text-[10px] font-mono text-slate-400">100% Sovereign Vault</span>
+  </div>
+  <div className="grid grid-cols-2 gap-1.5">
+    {[
+      { key: 'baron', label: 'Baron / Baroness', price: 10 },
+      { key: 'viscount', label: 'Viscount / Viscountess', price: 25 },
+      { key: 'earl', label: 'Earl / Countess', price: 50 },
+      { key: 'marquess', label: 'Marquess / Marchioness', price: 100 },
+      { key: 'duke', label: 'Duke / Duchess', price: 250 },
+      { key: 'elector', label: 'Sovereign Elector', price: 500 }
+    ].map(t => (
+      <button key={t.key} type="button" onClick={async () => {
+        const r = await fetch('/api/titles/buy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...(user?.token ? { Authorization: 'Bearer ' + user.token } : {}) },
+          body: JSON.stringify({ titleKey: t.key })
+        });
+        const d = await r.json();
+        if (!r.ok) { addToast(d.error || 'Purchase failed', 'error'); }
+        else {
+          const updated = { ...user, title: d.title };
+          localStorage.setItem('goldnumista_user', JSON.stringify(updated));
+          addToast('Acquired Title: ' + d.title + ' (' + d.price + ' NUM)', 'success');
+        }
+      }} className="p-2 rounded-lg bg-slate-950 hover:bg-amber-950/40 border border-slate-800 hover:border-amber-500/40 text-left transition">
+        <div className="text-[11px] font-bold text-slate-200 truncate">{t.label}</div>
+        <div className="text-[10px] font-mono text-amber-400">{t.price} NUM</div>
+      </button>
+    ))}
+  </div>
+</div>
+<div className="p-3.5 rounded-xl bg-slate-900 border border-orange-500/30 space-y-2"><div className="text-xs font-bold text-orange-300">On-Chain Minting Username (@handle)</div><p className="text-[11px] text-slate-400">Bind a @username to your Sb... address on-chain so Royal Mint coins and land deeds stamp your handle.</p><form onSubmit={async (e) => { e.preventDefault(); const u = e.target.uname.value.trim(); const r = await fetch("/api/auth/claim-username", { method: "POST", headers: { "Content-Type": "application/json", ...(user?.token ? { Authorization: "Bearer " + user.token } : {}) }, body: JSON.stringify({ username: u }) }); const d = await r.json(); if (!r.ok) { addToast(d.error || "Failed", "error"); } else { const updated = { ...user, username: d.username, displayHandle: d.username, token: d.token }; localStorage.setItem("goldnumista_user", JSON.stringify(updated)); addToast("Claimed @" + d.username + " on-chain!", "success"); } }} className="flex gap-2"><input name="uname" type="text" placeholder="e.g. sovereign_king" className="flex-1 px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs font-mono text-white" /><button type="submit" className="px-3 py-1.5 rounded-lg bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold">Mint @Handle (1 NUM)</button></form></div>
       </div>
     </div>
   );

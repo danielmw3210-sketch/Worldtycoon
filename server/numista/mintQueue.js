@@ -225,6 +225,7 @@ class MintQueue {
           step.error = null;
           if (!step.compensation) job.status = 'confirming';
           job.updatedAt = nowIso();
+          return;
         } catch (err) {
           const isTransient = /not enough unlocked money|daemon unreachable|timed out|busy|ECONNREFUSED/i.test(err.message || '');
           if (isTransient && (step.attempts || 0) < 20) {

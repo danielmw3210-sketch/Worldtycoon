@@ -127,6 +127,35 @@ const [convertAmount, setConvertAmount] = useState('');
       setActiveTab('overview');
     } catch (err) { addToast(err.message, 'error'); } finally { setConverting(false); }
   };
+const handleSend = async () => {
+  const value = Number(amount);
+  const to = recipient.trim().replace(/^@/, '');
+  if (!to) return addToast('Enter a recipient username', 'error');
+  if (!(value > 0)) return addToast('Enter a valid amount', 'error');
+  try {
+    setSending(true);
+    const res = await fetch('/api/wallet/transfer', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${user?.token || ''}`
+      },
+      body: JSON.stringify({ toUsername: to, amount: value })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Transfer failed');
+    addToast(`Sent ${value} NUM to @${to}`, 'success');
+    setAmount('');
+    setRecipient('');
+    if (refreshWallet) await refreshWallet();
+    setActiveTab('overview');
+  } catch (err) {
+    addToast(err.message, 'error');
+  } finally {
+    setSending(false);
+  }
+};
+
 const balance = wallet?.balance ?? 0;
 const pending = wallet?.pendingBalance ?? 0;
 const locked = wallet?.lockedBalance ?? 0;
@@ -250,7 +279,7 @@ const locked = wallet?.lockedBalance ?? 0;
                     Receive native NUM
                   </div>
                   <p className="text-[11px] text-slate-500 mt-1">
-                    This account-specific Numista address receives native coin through the blockchain. In-game NUM asset transfers still use your username.
+                    This account-specific Numista address receives native coin through the blockchain. Confirmed deposits are converted to in-game NUM automatically (0.05 NUM fee + gas). In-game NUM asset transfers still use your username.
                   </p>
                 </div>
                 {receiveError ? (
@@ -344,7 +373,7 @@ const locked = wallet?.lockedBalance ?? 0;
             <div className="space-y-4">
               <div className="p-4 rounded-xl bg-slate-900/80 border border-slate-800 space-y-3">
                 <div className="flex justify-between text-xs font-mono">
-                  <span className="text-slate-400">Native NUM (Account #+receiveInfo?.accountIndex):</span>
+                  <span className="text-slate-400">Native NUM (Account #{receiveInfo?.accountIndex ?? '—'}):</span>
                   <span className="text-emerald-400 font-bold">{Number(receiveInfo?.unlockedBalance || 0).toFixed(4)} NUM unlocked</span>
                 </div>
                 <div>

@@ -602,7 +602,12 @@ class ChainAdapter {
     if (this.mode !== 'live') return null;
     try {
       const res = await this._daemonJsonRpc('get_numista_asset_username_key', { username });
-      return res.found ? res : null;
+      if (!res || res.registered !== true) return null;
+      return {
+        ...res,
+        username: res.username || String(username || '').toLowerCase(),
+        key: res.asset_key || null
+      };
     } catch {
       return null;
     }
@@ -613,7 +618,7 @@ class ChainAdapter {
   async _executeLive(op) {
     const base = {
       account_index: Number(op.accountIndex) || 0,
-      account_index: Number(op.accountIndex)||0, do_not_relay: false,
+      do_not_relay: false,
       get_tx_key: false,
       get_tx_hex: false
     };

@@ -1,5 +1,5 @@
 {
-  "savedAt": "2026-11-25T15:29:22.018Z",
+  "savedAt": "2026-11-25T21:46:09.308Z",
   "users": [
     {
       "username": "danie",
@@ -12,7 +12,10 @@
         "pendingBalance": 0,
         "lockedBalance": 0,
         "transfers": []
-      }
+      },
+      "receiveAddress": null,
+      "chainIdentity": "unregistered",
+      "identityReceipt": null
     },
     {
       "username": "mercantile",
@@ -25,12 +28,15 @@
         "pendingBalance": 0,
         "lockedBalance": 0,
         "transfers": []
-      }
+      },
+      "receiveAddress": null,
+      "chainIdentity": "unregistered",
+      "identityReceipt": null
     },
     {
       "username": "crown_treasury",
       "password": "c358c4e5770eef47f53371b9e881bf9ee1eb",
-      "role": "institution",
+      "role": "user",
       "createdAt": "2026-11-25T15:29:22.015Z",
       "wallet": {
         "balance": 0,
@@ -38,6 +44,35 @@
         "pendingBalance": 0,
         "lockedBalance": 0,
         "transfers": []
+      },
+      "receiveAddress": null,
+      "chainIdentity": "unregistered",
+      "identityReceipt": null
+    },
+    {
+      "username": "unknown_5",
+      "password": "6f3d8afaefccdaf88b075823c79a290fb08faeb2c2d2b2e827051eabe2166152",
+      "role": "user",
+      "createdAt": "2026-11-25T21:46:09.302Z",
+      "wallet": {
+        "balance": 0,
+        "unlockedBalance": 0,
+        "pendingBalance": 0,
+        "lockedBalance": 0,
+        "transfers": []
+      },
+      "receiveAddress": {
+        "address": "UGN2H3B2RWGHff22JJBnYnBXhboJt8hCnZzRSRxxW3biKuAxvvsCLfV1NFDXZqA8tBVmxKUtCu59QDvZd2voGCrt2aZeAt9gv",
+        "accountIndex": 5,
+        "addressIndex": 0
+      },
+      "chainIdentity": "registered",
+      "identityReceipt": {
+        "address": "UGN2H3B2RWGHff22JJBnYnBXhboJt8hCnZzRSRxxW3biKuAxvvsCLfV1NFDXZqA8tBVmxKUtCu59QDvZd2voGCrt2aZeAt9gv",
+        "username": "unknown_5",
+        "secretPassword": "6f3d8afaefccdaf88b075823c79a290fb08faeb2c2d2b2e827051eabe2166152",
+        "txHash": "c3699e45665a18b235b1f0c5a58d7476df1e1288f6b7424eeb48d44265fd07dd",
+        "blockHeight": null
       }
     }
   ]

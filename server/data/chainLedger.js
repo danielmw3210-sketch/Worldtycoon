@@ -46,7 +46,7 @@ class ChainLedger {
 
   /* ---- persistence ---- */
 
-  load() { return;
+  load() {
     try {
       if (!fs.existsSync(this.file)) return;
       const raw = JSON.parse(fs.readFileSync(this.file, 'utf8'));
@@ -69,7 +69,7 @@ class ChainLedger {
     }
   }
 
-  save() { return;
+  save() {
     try {
       fs.mkdirSync(path.dirname(this.file), { recursive: true });
       fs.writeFileSync(this.file, JSON.stringify({

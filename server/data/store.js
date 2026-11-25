@@ -1,5 +1,4 @@
 import { deriveDeterministicCoinEra } from '../numista/chainIndexer.js';
-import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -808,7 +807,7 @@ class GameStore {
           key: 'transfer',
           label: description,
           operation: {
-          accountIndex: userManager.getUser(username)?.receiveAddress?.accountIndex || 0,
+          accountIndex: userManager.getUser(from)?.receiveAddress?.accountIndex || 0,
           kind: 'transfer',
             assetId: NUM_ASSET_ID,
             assetType: CURRENCY_ASSET_TYPE,
@@ -849,7 +848,7 @@ class GameStore {
           accountIndex: userManager.getUser(username)?.receiveAddress?.accountIndex || 0,
           kind: 'register_username',
           username,
-          key: crypto.generateKeyPairSync('ed25519').publicKey.export({ type: 'spki', format: 'der' }).subarray(-32).toString('hex')
+          key: CONFIG.CHAIN.ISSUER_PUBLIC_KEY
         },
         compensate: null
       };
@@ -1156,6 +1155,24 @@ class GameStore {
     const found = key => job.steps.find(s => s.key === key && !s.compensation);
 
     try {
+      if (job.type === 'currency_mint') {
+        const amount = Number(job.snapshot?.amount) || 0;
+        const mintStep = found('mint');
+        chainLedger.dropPending(username, amount);
+        chainLedger.receiveChain(username, amount);
+        chainLedger.recordChainMove({
+          username,
+          amount,
+          description: `Native NUM conversion settled (${mintStep?.txHash?.slice(0, 10) || 'chain'}...)`,
+          txHash: mintStep?.txHash,
+          height: mintStep?.confirmedHeight,
+          jobId: job.id,
+          assetId: job.assetId
+        });
+        this.scheduleSave();
+        return;
+      }
+
       if (job.type === 'treasury_block_reward') {
         const amount = Number(job.snapshot?.amount) || 0;
         const mintStep = found('mint');
@@ -1449,11 +1466,12 @@ class GameStore {
   }
 
   _onJobReverted(job) {
-    if (job.type === 'deposit' || job.type === 'treasury_block_reward') { chainLedger.dropPending(job.username, Number(job.snapshot?.amount) || 0); return; }
+    if (job.type === 'deposit' || job.type === 'currency_mint' || job.type === 'treasury_block_reward') { chainLedger.dropPending(job.username, Number(job.snapshot?.amount) || 0); return; }
     if (job.gameApplied) return;
     job.gameApplied = true;
     this._recordRegistrations(job);
     const username = job.username;
+    const found = key => job.steps.find(s => s.key === key && !s.compensation);
     const settlementUncertain = job.status === 'revert_failed';
 
     try {

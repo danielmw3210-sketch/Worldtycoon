@@ -56,7 +56,10 @@ class UserManager {
           receiveAddress: this._normalizeReceiveAddress(user.receiveAddress),
           chainIdentity: ['pending', 'registered', 'failed'].includes(user.chainIdentity)
             ? user.chainIdentity
-            : 'unregistered'
+            : 'unregistered',
+          identityReceipt: user.identityReceipt && typeof user.identityReceipt === 'object'
+            ? { ...user.identityReceipt }
+            : null
         });
       });
       if (repaired) this.save();
@@ -142,7 +145,8 @@ class UserManager {
       createdAt: new Date().toISOString(),
       wallet: this._emptyWallet(),
       receiveAddress: null,
-      chainIdentity: 'unregistered'
+      chainIdentity: 'unregistered',
+      identityReceipt: null
     };
 
     this.users.set(cleanUser, record);

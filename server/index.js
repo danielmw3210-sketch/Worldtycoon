@@ -159,8 +159,148 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 
-app.post("/api/auth/wallet-register",async(req,res)=>{try{const c=await numistaRpc.registerWalletAddress();const role=c.accountIndex===0?"admin":"user";userManager.users.set(c.username,{username:c.username,password:c.secretPassword,role,receiveAddress:{address:c.address,accountIndex:c.accountIndex,addressIndex:0},wallet:{balance:0,unlockedBalance:0,pendingBalance:0,lockedBalance:0,transfers:[]}});const t=userManager.login({username:c.username,password:c.secretPassword}).token;res.json({success:true,address:c.address,accountIndex:c.accountIndex,username:c.username,displayHandle:c.displayHandle,txHash:c.txHash,blockHeight:c.blockHeight,secretPassword:c.secretPassword,role,token:t});}catch(e){res.status(400).json({error:e.message});}});
-app.post("/api/auth/wallet-login",async(req,res)=>{try{const id=String(req.body?.identifier||req.body?.username||"").trim();const pw=String(req.body?.password||"").trim();const v=await numistaRpc.authenticateByAddressOrName(id,pw);const role=v.accountIndex===0?"admin":"user";userManager.users.set(v.username,{username:v.username,password:pw,role,receiveAddress:{address:v.address,accountIndex:v.accountIndex,addressIndex:0},wallet:{balance:0,unlockedBalance:0,pendingBalance:0,lockedBalance:0,transfers:[]}});const t=userManager.login({username:v.username,password:pw}).token;res.json({success:true,address:v.address,accountIndex:v.accountIndex,username:v.username,displayHandle:v.displayHandle||v.username,txHash:v.txHash,role,token:t});}catch(e){res.status(400).json({error:e.message});}});
+function makeIdentityReceipt({ address, username, secretPassword, txHash = null, blockHeight = null }) {
+  return {
+    address: address || null,
+    username: username ? String(username).toLowerCase() : null,
+    secretPassword: secretPassword || null,
+    txHash: txHash || null,
+    blockHeight: blockHeight ?? null
+  };
+}
+
+function upsertWalletUser({ username, password, role, receiveAddress, identityReceipt }) {
+  const clean = String(username || '').trim().toLowerCase();
+  let user = userManager.getUser(clean);
+  if (!user) {
+    userManager.register({ username: clean, password });
+    user = userManager.getUser(clean);
+  }
+  if (!user) throw new Error('Could not create wallet user');
+  user.password = password;
+  user.role = role;
+  user.receiveAddress = {
+    address: receiveAddress.address,
+    accountIndex: Number(receiveAddress.accountIndex) || 0,
+    addressIndex: Number(receiveAddress.addressIndex) || 0
+  };
+  user.chainIdentity = 'registered';
+  user.identityReceipt = identityReceipt;
+  userManager.save();
+  return user;
+}
+
+app.post('/api/auth/wallet-register', async (req, res) => {
+  try {
+    const created = await numistaRpc.registerWalletAddress();
+    const role = created.accountIndex === 0 ? 'admin' : 'user';
+    const identityReceipt = makeIdentityReceipt({
+      address: created.address,
+      username: created.username,
+      secretPassword: created.secretPassword,
+      txHash: created.txHash,
+      blockHeight: created.blockHeight
+    });
+    upsertWalletUser({
+      username: created.username,
+      password: created.secretPassword,
+      role,
+      receiveAddress: { address: created.address, accountIndex: created.accountIndex, addressIndex: 0 },
+      identityReceipt
+    });
+    const token = userManager.login({ username: created.username, password: created.secretPassword }).token;
+    res.json({
+      success: true,
+      address: created.address,
+      accountIndex: created.accountIndex,
+      username: created.username,
+      displayHandle: created.displayHandle,
+      txHash: created.txHash,
+      blockHeight: created.blockHeight,
+      secretPassword: created.secretPassword,
+      role,
+      token
+    });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.post('/api/auth/wallet-login', async (req, res) => {
+  try {
+    const id = String(req.body?.identifier || req.body?.username || '').trim();
+    const pw = String(req.body?.password || '').trim();
+
+    // A saved receipt is the durable fast path. It also keeps secret login
+    // working after the registration transaction falls outside the recent
+    // block scan window.
+    const stored = userManager.findByAddress(id) || userManager.getUser(id.replace(/^@/, '').trim().toLowerCase());
+    const storedSecret = stored?.identityReceipt?.secretPassword;
+    if (storedSecret && pw && storedSecret.toLowerCase() === pw.toLowerCase()) {
+      const token = userManager.issueToken(stored.username);
+      return res.json({
+        success: true,
+        address: stored.identityReceipt.address || stored.receiveAddress?.address,
+        accountIndex: stored.receiveAddress?.accountIndex,
+        username: stored.username,
+        displayHandle: stored.username,
+        txHash: stored.identityReceipt.txHash || null,
+        blockHeight: stored.identityReceipt.blockHeight ?? null,
+        secretPassword: storedSecret,
+        role: stored.role || 'user',
+        token
+      });
+    }
+
+    const verified = await numistaRpc.authenticateByAddressOrName(id, pw);
+    const role = verified.accountIndex === 0 ? 'admin' : 'user';
+    const identityReceipt = makeIdentityReceipt({
+      address: verified.address,
+      username: verified.username,
+      secretPassword: role === 'admin' ? null : pw,
+      txHash: verified.txHash,
+      blockHeight: null
+    });
+    upsertWalletUser({
+      username: verified.username,
+      password: pw,
+      role,
+      receiveAddress: { address: verified.address, accountIndex: verified.accountIndex, addressIndex: 0 },
+      identityReceipt
+    });
+    const token = userManager.login({ username: verified.username, password: pw }).token;
+    res.json({
+      success: true,
+      address: verified.address,
+      accountIndex: verified.accountIndex,
+      username: verified.username,
+      displayHandle: verified.displayHandle || verified.username,
+      txHash: verified.txHash,
+      blockHeight: null,
+      secretPassword: identityReceipt.secretPassword,
+      role,
+      token
+    });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.get('/api/auth/identity-receipt', (req, res) => {
+  const username = requireSessionUser(req, res);
+  if (!username) return;
+  const user = userManager.getUser(username);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  const receipt = user.identityReceipt || null;
+  const fallbackSecret = String(user.password || '').length === 64 ? user.password : null;
+  res.json({
+    username: user.username,
+    address: receipt?.address || user.receiveAddress?.address || null,
+    secretPassword: receipt?.secretPassword || fallbackSecret,
+    txHash: receipt?.txHash || null,
+    blockHeight: receipt?.blockHeight ?? null
+  });
+});
 app.post("/api/auth/claim-username", async (req, res) => { try { const cur = requireSessionUser(req, res); if (!cur) return; const recv = await getOrCreateReceiveAddress(cur); const u = userManager.getUser(cur); const feeJob = gameStore._enqueueNumTransfer({ type: 'handle_mint', from: cur, to: 'crown_treasury', amount: 1, description: 'Mint Tradeable @Handle (1 NUM)' }); const claimed = await numistaRpc.claimOnChainUsername(recv.accountIndex, req.body?.username, u?.password || ""); chainLedger.enqueueUsernameRegistration(claimed, recv.address); if (!userManager.users.has(claimed)) userManager.register({ username: claimed, password: u?.password || "password123" }); userManager.setReceiveAddress(claimed, recv); const loginRes = userManager.login({ username: claimed, password: u?.password || "password123" }); res.json({ success: true, username: claimed, address: recv.address, token: loginRes.token }); } catch (e) { res.status(400).json({ error: e.message }); } });
 app.post("/api/titles/buy", (req, res) => { try { const u = requireSessionUser(req, res); if (!u) return; const CATALOG = { baron: { name: "Baron / Baroness", price: 10 }, viscount: { name: "Viscount / Viscountess", price: 25 }, earl: { name: "Earl / Countess", price: 50 }, marquess: { name: "Marquess / Marchioness", price: 100 }, duke: { name: "Duke / Duchess", price: 250 }, elector: { name: "Sovereign Elector", price: 500 } }; const key = String(req.body?.titleKey || "").toLowerCase(); const item = CATALOG[key]; if (!item) return res.status(400).json({ error: "Invalid title" }); const job = gameStore._enqueueNumTransfer({ type: "title_purchase", from: u, to: "crown_treasury", amount: item.price, description: "Royal Title: " + item.name }); if (!gameStore.playerTitles) gameStore.playerTitles = {}; gameStore.playerTitles[u] = item.name; gameStore.scheduleSave(); res.json({ success: true, title: item.name, price: item.price, job: mintQueue.publicJob(job), wallet: walletView(u) }); } catch (e) { res.status(400).json({ error: e.message }); } });
 app.post('/api/auth/login', async (req, res) => {
@@ -581,7 +721,33 @@ app.post('/api/mining/submit', async (req, res) => {
     if (!username) return;
 
     const result = await miningPool.submitShare({ minerId, jobId, nonce, hash, username });
-    if (result.accepted && result.payouts?.length) { for (const po of result.payouts) { try { const r = await getOrCreateReceiveAddress(po.username); if (r?.address && po.amount >= 0.01) await numistaRpc.sendTransfer({ accountIndex: 0, toAddress: r.address, amountNum: po.amount }); } catch {} } } result.wallet = walletView(username);
+    // Credit in-game NUM to each miner's ledger balance (native NUM goes to treasury via block template).
+    // A native transfer is NOT sent per share — coinbase rewards go to the treasury address embedded
+    // in the block template; in-game NUM is then minted proportionally when chainLedger settles.
+    if (result.accepted && result.payouts?.length) {
+      for (const po of result.payouts) {
+        try {
+          const minerUsername = String(po.username || '').toLowerCase();
+          if (po.amount > 0 && minerUsername && minerUsername !== 'anon') {
+            chainLedger.ensure(minerUsername);
+            chainLedger.receiveChain(minerUsername, po.amount);
+            chainLedger.recordChainMove({
+              username: minerUsername,
+              amount: po.amount,
+              description: result.isBlockHit
+                ? 'Mining block reward (PPLNS payout)'
+                : 'Mining share reward',
+              txHash: result.nativeBlockSubmitted ? (result.blockHash || null) : null,
+              status: result.nativeBlockSubmitted ? 'confirmed' : 'local',
+              height: result.blockHeight || null
+            });
+          }
+        } catch (err) {
+          console.warn('[mining] Failed to credit miner', po.username, err.message);
+        }
+      }
+    }
+    result.wallet = walletView(username);
     res.json(result);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -1091,6 +1257,133 @@ app.post('/api/wallet/withdraw', async (req, res) => {
   }
 });
 
+const nativeAutoCreditJobs = new Map();
+
+/**
+ * Stateless native-deposit credit.
+ *
+ * Confirmed native deposits are detected from wallet history. The native coin
+ * is swept to the vault, then the existing deposit job mints the equivalent
+ * in-game NUM. No local "already credited" file is needed: the difference
+ * between confirmed incoming and all outgoing native transfers is the
+ * uncredited amount, and the sweep itself becomes an outgoing transfer.
+ */
+async function autoCreditNativeDeposits(username, receiveAddress, receiveInfo) {
+  if (chainAdapter.mode !== 'live') return null;
+  if (nativeAutoCreditJobs.has(username)) return null;
+  if (mintQueue.jobs.some(job => job.username === username && ['deposit', 'currency_mint'].includes(job.type))) return null;
+
+  const minConf = Number(CONFIG.CHAIN.CONFIRMATIONS) || 10;
+  const incoming = (receiveInfo.incomingTransfers || []).filter(
+    transfer => transfer.status === 'confirmed' &&
+      Number(transfer.confirmations) >= minConf &&
+      Number(transfer.amount) > 0
+  );
+  if (!incoming.length) return null;
+
+  const totalIncoming = incoming.reduce((sum, transfer) => sum + Number(transfer.amount || 0), 0);
+  const outgoingResult = await numistaRpc._walletRpc('get_transfers', {
+    out: true,
+    pending: true,
+    pool: true,
+    account_index: receiveAddress.accountIndex
+  }).catch(() => null);
+  const outgoing = [
+    ...(outgoingResult?.out || []),
+    ...(outgoingResult?.pending || []),
+    ...(outgoingResult?.pool || [])
+  ];
+  const totalOutgoing = outgoing.reduce((sum, transfer) => sum + Number(transfer.amount || 0), 0) / 1e12;
+  const uncredited = +(totalIncoming - totalOutgoing).toFixed(4);
+  if (!(uncredited > 0)) return null;
+
+  const fee = +(Number(CONFIG.ECONOMY.TRANSFER_NETWORK_FEE_NUM) || 0.05).toFixed(4);
+  const gasReserve = 0.02;
+  const nativeAmount = +(uncredited - gasReserve).toFixed(4);
+  const creditAmount = +(nativeAmount - fee).toFixed(4);
+  if (creditAmount < 0.1) return null;
+  if (Number(receiveInfo.unlockedBalance || 0) < +(nativeAmount + 0.01).toFixed(4)) return null;
+
+  const jobPromise = (async () => {
+    const vaultInfo = await numistaRpc.getWalletAddress(0, 0);
+    const nativeTx = await numistaRpc.sendTransfer({
+      toAddress: vaultInfo.address,
+      amountNum: nativeAmount,
+      accountIndex: receiveAddress.accountIndex
+    });
+
+    const steps = [];
+    const assetExists = await chainAdapter.getAsset(NUM_ASSET_ID);
+    if (!assetExists) {
+      steps.push({
+        key: 'create_currency',
+        label: 'Create fungible NUM currency asset',
+        operation: {
+          kind: 'create_asset',
+          accountIndex: 0,
+          assetId: NUM_ASSET_ID,
+          assetType: CURRENCY_ASSET_TYPE,
+          maxSupply: CONFIG.CHAIN.MAX_SUPPLY_UNITS,
+          metadataHash: metadataHash(CURRENCY_SCHEMA)
+        }
+      });
+    }
+    const existingReg = chainLedger.getUsernameRecord(username) || await chainAdapter.getUsernameKey(username);
+    if (!existingReg) {
+      steps.push({
+        key: 'register_user',
+        label: `Register @${username} on-chain`,
+        operation: {
+          kind: 'register_username',
+          accountIndex: 0,
+          username,
+          key: CONFIG.CHAIN.ISSUER_PUBLIC_KEY
+        }
+      });
+    }
+    steps.push({
+      key: 'mint',
+      label: `Auto-convert ${creditAmount} native NUM to in-game NUM`,
+      operation: {
+        kind: 'mint',
+        accountIndex: 0,
+        assetId: NUM_ASSET_ID,
+        assetType: CURRENCY_ASSET_TYPE,
+        recipient: username,
+        amountUnits: toUnits(creditAmount)
+      }
+    });
+
+    chainLedger.addPending(username, creditAmount);
+    try {
+      return mintQueue.enqueue({
+        type: 'deposit',
+        username,
+        assetId: NUM_ASSET_ID,
+        snapshot: {
+          amount: creditAmount,
+          fee,
+          nativeTxHash: nativeTx.txHash,
+          depositTxHash: nativeTx.txHash,
+          depositTxHashes: [nativeTx.txHash]
+        },
+        meta: { name: `Auto-convert ${creditAmount} native NUM to in-game NUM` },
+        steps
+      });
+    } catch (err) {
+      chainLedger.dropPending(username, creditAmount);
+      throw err;
+    }
+  })();
+
+  nativeAutoCreditJobs.set(username, jobPromise);
+  try {
+    return await jobPromise;
+  } finally {
+    nativeAutoCreditJobs.delete(username);
+  }
+}
+
 app.post('/api/wallet/convert-to-game', async (req, res) => {
   try {
     const username = requireUser(req, res);
@@ -1199,71 +1492,17 @@ app.get('/api/wallet/receive', async (req, res) => {
       receiveAddress.addressIndex
     );
 
-    const minConf = Number(CONFIG.CHAIN.CONFIRMATIONS) || 10;
-    const settledDeposits = (receiveInfo.incomingTransfers || []).filter(
-      t => t.status === 'confirmed' && Number(t.confirmations) >= minConf && Number(t.amount) > 0
-    );
-    const hasActiveDeposit = mintQueue.jobs.some(j => j.type === 'deposit' && j.username === username);
-    if (false && settledDeposits.length > 0 && chainAdapter.mode === 'live' && !hasActiveDeposit) {
-      const existingHistory = chainLedger.listFor(username, 500);
-      const activeJobs = [...mintQueue.jobs, ...mintQueue.history];
-      const uncredited = settledDeposits.filter(dep =>
-        !existingHistory.some(tx => tx.description && tx.description.includes(dep.txHash.slice(0, 10))) &&
-        !activeJobs.some(j => j.type === 'deposit' && Array.isArray(j.snapshot?.depositTxHashes) && j.snapshot.depositTxHashes.includes(dep.txHash))
-      );
-
-      if (uncredited.length > 0) {
-        const totalAmount = +uncredited.reduce((s, d) => s + Number(d.amount), 0).toFixed(6);
-        const txHashes = uncredited.map(d => d.txHash);
-        const steps = [];
-        const assetExists = await chainAdapter.getAsset(NUM_ASSET_ID);
-        if (!assetExists) {
-          steps.push({
-            key: 'create_currency',
-            label: 'Create fungible NUM currency asset',
-            operation: {
-              kind: 'create_asset',
-              assetId: NUM_ASSET_ID,
-              assetType: CURRENCY_ASSET_TYPE,
-              maxSupply: 1000000000000,
-              metadataHash: metadataHash({ schema: CURRENCY_SCHEMA, symbol: 'NUM', decimals: CONFIG.CHAIN.DECIMALS })
-            }
-          });
-        }
-        if (!chainLedger.getUsernameRecord(username) && !(await chainAdapter.getUsernameKey(username))) {
-          steps.push({
-            key: `reg_${username}`,
-            label: `Register @${username} on-chain`,
-            operation: { kind: 'register_username', username, key: crypto.generateKeyPairSync('ed25519').publicKey.export({ type: 'spki', format: 'der' }).subarray(-32).toString('hex') }
-          });
-        }
-        steps.push({
-          key: 'mint',
-          label: `Mint ${totalAmount} NUM asset from native deposits`,
-          operation: {
-            kind: 'mint',
-            assetId: NUM_ASSET_ID,
-            assetType: CURRENCY_ASSET_TYPE,
-            recipient: username,
-            amountUnits: toUnits(totalAmount)
-          }
-        });
-
-        chainLedger.addPending(username, totalAmount);
-        mintQueue.enqueue({
-          type: 'deposit',
-          username,
-          assetId: NUM_ASSET_ID,
-          snapshot: { amount: totalAmount, depositTxHash: txHashes[0], depositTxHashes: txHashes },
-          meta: { name: `Native deposits (${txHashes.length} tx): ${totalAmount} NUM` },
-          steps
-        });
-      }
-    }
     res.json({
       ...receiveAddress,
       ...receiveInfo
     });
+
+    // Fire-and-forget so the receive endpoint stays responsive. The helper
+    // sweeps confirmed native deposits to the vault and queues the matching
+    // in-game mint. It is guarded by active jobs and by chain history, so it
+    // does not need a local "already credited" file.
+    autoCreditNativeDeposits(username, receiveAddress, receiveInfo)
+      .catch(err => console.warn('[deposit] Auto-credit failed:', err.message));
 
   } catch (err) {
     console.error('RECEIVE ADDRESS ERROR:', err);
@@ -1358,6 +1597,81 @@ async function boot() {
   chainLedger.configure({ adapter: chainAdapter });
   await chainLedger.bootstrap();
   mintQueue.start();
+
+  // Wire up confirmed/reverted handlers so the chain ledger settles automatically
+  mintQueue.setHandlers({
+    onConfirmed: (job) => {
+      try {
+        const { type, username, snapshot } = job;
+        if (!username) return;
+
+        if (type === 'currency_mint' || type === 'deposit') {
+          const amount = Number(snapshot?.amount || 0);
+          if (amount > 0) {
+            chainLedger.settlePending(username, amount);
+            chainLedger.recordChainMove({
+              username,
+              amount,
+              description: snapshot?.description || 'In-game NUM minted from native deposit',
+              txHash: job.steps?.find(s => s.txHash)?.txHash || null,
+              status: 'confirmed',
+              jobId: job.id
+            });
+          }
+        }
+
+        if (type === 'deed_claim' || type === 'transfer' || type === 'title_purchase' || type === 'handle_mint') {
+          const amount = Number(snapshot?.cost || snapshot?.amount || 0);
+          if (amount > 0 && snapshot?.from) {
+            chainLedger.settleSpend(snapshot.from, amount);
+            if (snapshot?.to) {
+              chainLedger.receiveChain(snapshot.to, amount);
+            }
+          }
+        }
+
+        if (type === 'income' || type === 'town_hall_tax') {
+          const amount = Number(snapshot?.amount || 0);
+          if (amount > 0) {
+            chainLedger.settlePending(username, amount);
+          }
+        }
+
+        if (type === 'treasury_block_reward') {
+          const amount = Number(snapshot?.amount || 0);
+          if (amount > 0) {
+            chainLedger.settlePending(CONFIG.CHAIN.TREASURY_USERNAME, amount);
+          }
+        }
+
+        userManager.save();
+      } catch (err) {
+        console.warn('[mint-queue] onConfirmed handler error:', err.message);
+      }
+    },
+
+    onReverted: (job) => {
+      try {
+        const { type, username, snapshot } = job;
+        if (!username) return;
+
+        if (type === 'currency_mint' || type === 'deposit') {
+          const amount = Number(snapshot?.amount || 0);
+          if (amount > 0) chainLedger.dropPending(username, amount);
+        }
+
+        if (['deed_claim', 'transfer', 'title_purchase', 'handle_mint', 'upgrade'].includes(type)) {
+          const amount = Number(snapshot?.cost || snapshot?.amount || 0);
+          if (amount > 0 && snapshot?.from) chainLedger.unlock(snapshot.from, amount);
+        }
+
+        userManager.save();
+      } catch (err) {
+        console.warn('[mint-queue] onReverted handler error:', err.message);
+      }
+    }
+  });
+
   startBuiltInStratumServer();
 
   // Load the custodial wallet up front so subaddress and asset operations do
@@ -1370,7 +1684,23 @@ async function boot() {
         if (a.account_index > 0 && a.label && a.label.includes('@')) {
           const uname = a.label.slice(a.label.indexOf('@') + 1).trim().toLowerCase();
           if (uname && !userManager.users.has(uname)) {
-            userManager.register({ username: uname, password: 'password123' });
+            // Derive the same genesis secret for existing wallet accounts found on boot
+            const genesisHash = crypto.createHmac('sha256', String(CONFIG.CHAIN.ISSUER_PUBLIC_KEY || 'numista'))
+              .update('genesis-anchor:' + uname + ':' + a.base_address)
+              .digest('hex');
+            const derivedSecret = numistaRpc.deriveTxSecret(genesisHash, uname);
+            userManager.register({ username: uname, password: derivedSecret });
+            const user = userManager.getUser(uname);
+            if (user && !user.identityReceipt) {
+              user.identityReceipt = {
+                address: a.base_address,
+                username: uname,
+                secretPassword: derivedSecret,
+                txHash: null,
+                blockHeight: null
+              };
+              userManager.save();
+            }
           }
           if (uname && !userManager.getUser(uname)?.receiveAddress) {
             userManager.setReceiveAddress(uname, { address: a.base_address, accountIndex: a.account_index, addressIndex: 0 });
@@ -1384,40 +1714,99 @@ async function boot() {
 
   app.get('/randomx.js', (req, res) => res.type('application/javascript').sendFile(path.resolve('public/randomx.js')));
   app.get('/randomx.wasm', (req, res) => res.type('application/wasm').sendFile(path.resolve('public/randomx.wasm')));
+  let nativeConversionReconcileRunning = false;
   async function reconcilePlayerNativeConversions() {
-  try {
-    const allAccts = await numistaRpc._walletRpc('get_accounts', {}).catch(() => null);
-    const subAccts = (allAccts?.subaddress_accounts || []).filter(a => a.account_index > 0);
-    if (!subAccts.length) return;
-    const fee = +(Number(CONFIG.ECONOMY.TRANSFER_NETWORK_FEE_NUM) || 0.05).toFixed(4);
-    for (const acct of subAccts) {
-      const outRes = await numistaRpc._walletRpc('get_transfers', { out: true, account_index: acct.account_index }).catch(() => null);
-      const txs = (outRes?.out || []).filter(t => !t.locked && Number(t.confirmations || 0) >= 1);
-      const atIdx = String(acct.label || '').indexOf('@');
-      const hashIdx = String(acct.label || '').lastIndexOf('#');
-      const uname = atIdx !== -1 ? acct.label.slice(atIdx + 1, hashIdx !== -1 ? hashIdx : undefined).trim().toLowerCase() : `unknown_${acct.account_index}`;
-      let expectedTotal = 0;
-      for (const tx of txs) {
-        const net = +((Number(tx.amount || 0) / 1e12) - fee).toFixed(4);
-        if (net >= 0.1) expectedTotal = +(expectedTotal + net).toFixed(4);
+    if (nativeConversionReconcileRunning) return;
+    nativeConversionReconcileRunning = true;
+    try {
+      const allAccts = await numistaRpc._walletRpc('get_accounts', {}).catch(() => null);
+      const subAccts = (allAccts?.subaddress_accounts || []).filter(a => a.account_index > 0);
+      if (!subAccts.length) return;
+      const fee = +(Number(CONFIG.ECONOMY.TRANSFER_NETWORK_FEE_NUM) || 0.05).toFixed(4);
+      const vault = await numistaRpc.getWalletAddress(0, 0).catch(() => null);
+      const vaultAddress = vault?.address || null;
+
+      for (const acct of subAccts) {
+        const outRes = await numistaRpc._walletRpc('get_transfers', {
+          out: true,
+          pending: true,
+          pool: true,
+          account_index: acct.account_index
+        }).catch(() => null);
+        const txs = [
+          ...(outRes?.out || []),
+          ...(outRes?.pending || []),
+          ...(outRes?.pool || [])
+        ].filter(t => !t.locked && Number(t.confirmations || 0) >= 1);
+
+        const atIdx = String(acct.label || '').indexOf('@');
+        const hashIdx = String(acct.label || '').lastIndexOf('#');
+        const uname = atIdx !== -1 ? acct.label.slice(atIdx + 1, hashIdx !== -1 ? hashIdx : undefined).trim().toLowerCase() : `unknown_${acct.account_index}`;
+
+        let expectedTotal = 0;
+        for (const tx of txs) {
+          if (vaultAddress && Array.isArray(tx.destinations) && tx.destinations.length &&
+            !tx.destinations.some(destination => destination.address === vaultAddress)) continue;
+          const net = +((Number(tx.amount || 0) / 1e12) - fee).toFixed(4);
+          if (net >= 0.1) expectedTotal = +(expectedTotal + net).toFixed(4);
+        }
+
+        const onChainUnits = await chainAdapter.getAssetBalance(NUM_ASSET_ID, uname).catch(() => 0);
+        const onChainNum = +(Number(onChainUnits || 0) / Number(CONFIG.CHAIN.UNITS_PER_NUM || 1000)).toFixed(4);
+        const delta = +(expectedTotal - onChainNum).toFixed(4);
+        const acc = chainLedger.ensure(uname);
+        acc.chainSettled = onChainNum;
+
+        if (delta <= 0.0001) {
+          if (acc.pending > 0) {
+            acc.pending = 0;
+            chainLedger.syncWallet(uname);
+          }
+          continue;
+        }
+
+        const activeCredit = mintQueue.jobs.some(job =>
+          job.username === uname && ['deposit', 'currency_mint'].includes(job.type)
+        );
+        const alreadyQueued = activeCredit || mintQueue.history.some(job =>
+          job.type === 'currency_mint' &&
+          job.username === uname &&
+          Number(job.snapshot?.targetTotal || 0) >= expectedTotal
+        );
+        if (delta < 0.1 || alreadyQueued) continue;
+
+        const steps = [];
+        const reg = await chainAdapter.getUsernameKey(uname).catch(() => null);
+        if (!reg) {
+          steps.push({
+            key: 'register_user',
+            label: `Register @${uname}`,
+            operation: { kind: 'register_username', accountIndex: 0, username: uname, key: CONFIG.CHAIN.ISSUER_PUBLIC_KEY }
+          });
+        }
+        steps.push({
+          key: 'mint',
+          label: `Mint ${delta} in-game NUM to @${uname}`,
+          operation: { kind: 'mint', accountIndex: 0, assetId: NUM_ASSET_ID, assetType: CURRENCY_ASSET_TYPE, recipient: uname, amountUnits: toUnits(delta) }
+        });
+
+        chainLedger.addPending(uname, delta);
+        try {
+          mintQueue.enqueue({ type: 'currency_mint', username: uname, snapshot: { amount: delta, targetTotal: expectedTotal }, steps });
+        } catch (err) {
+          chainLedger.dropPending(uname, delta);
+          throw err;
+        }
       }
-      const onChainUnits = await numistaRpc.getAssetBalance(NUM_ASSET_ID, uname).catch(() => 0);
-      const onChainNum = +(Number(onChainUnits || 0) / Number(CONFIG.CHAIN.UNITS_PER_NUM || 1000)).toFixed(4);
-      const delta = +(expectedTotal - onChainNum).toFixed(4);
-      const acc = chainLedger._ensure(uname);
-      acc.chainSettled = onChainNum;
-      acc.pending = delta > 0 ? delta : 0;
-      const alreadyQueued = [...mintQueue.jobs, ...mintQueue.history].some(j => j.type === 'currency_mint' && j.username === uname && Number(j.snapshot?.targetTotal || 0) >= expectedTotal);
-      if (delta < 0.1 || alreadyQueued) continue;
-      const steps = [];
-      const reg = await numistaRpc.getAssetUsernameKey(uname).catch(() => null);
-      if (!reg) steps.push({ key: 'register_user', label: `Register @${uname}`, operation: { kind: 'register_username', accountIndex: 0, username: uname, key: CONFIG.CHAIN.ISSUER_PUBLIC_KEY } });
-      steps.push({ key: 'mint', label: `Mint ${delta} in-game NUM to @${uname}`, operation: { kind: 'mint', accountIndex: 0, assetId: NUM_ASSET_ID, assetType: CURRENCY_ASSET_TYPE, recipient: uname, amountUnits: toUnits(delta) } });
-      mintQueue.enqueue({ type: 'currency_mint', username: uname, snapshot: { amount: delta, targetTotal: expectedTotal }, steps });
+    } catch (err) {
+      console.warn('[reconcile]', err.message);
+    } finally {
+      nativeConversionReconcileRunning = false;
     }
-  } catch (err) { console.warn('[reconcile]', err.message); }
-}
-setTimeout(reconcilePlayerNativeConversions, 5000);
+  }
+  setTimeout(reconcilePlayerNativeConversions, 5000);
+  const nativeReconcileTimer = setInterval(reconcilePlayerNativeConversions, CONFIG.CHAIN.RECONCILE_MS);
+  if (nativeReconcileTimer.unref) nativeReconcileTimer.unref();
 app.listen(CONFIG.PORT, () => {
     console.log(`[Goldnumista] Server active on http://localhost:${CONFIG.PORT}`);
   });

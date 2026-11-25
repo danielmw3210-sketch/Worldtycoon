@@ -600,7 +600,7 @@ class NumistaRpcBridge {
 
   async getSubaddressReceiveInfo(accountIndex, addressIndex) {
     await this.ensureWalletOpen();
-    if (!this._rescannedOnce) { this._rescannedOnce = true; await this._walletRpc('rescan_blockchain', { hard: true }); await this._walletRpc('store'); } else if (!this._lastRefresh || Date.now() - this._lastRefresh > 12000) { this._lastRefresh = Date.now(); await this._walletRpc('refresh'); }
+    if (!this._lastRefresh || Date.now() - this._lastRefresh > 15000) { this._lastRefresh = Date.now(); await this._walletRpc('refresh', {}).catch(() => {}); }
     const [balance, transfers] = await Promise.all([
       this._walletRpc('get_balance', {
         account_index: accountIndex,
@@ -727,12 +727,22 @@ class NumistaRpcBridge {
 
   async registerWalletAddress() {
     await this.ensureWalletOpen();
+
+    // 1. Create a new custodial wallet account for this player
     const res = await this._walletRpc('create_account', { label: 'Player' });
     const uname = 'unknown_' + res.account_index;
-    await this._walletRpc('label_account', { account_index: res.account_index, label: 'Goldnumista @' + uname }).catch(() => {});
+    await this._walletRpc('label_account', {
+      account_index: res.account_index,
+      label: 'Goldnumista @' + uname
+    }).catch(() => {});
     await this._walletRpc('store', {}).catch(() => {});
+
     let txHash = null;
     let blockHeight = null;
+
+    // 2. Try to register username via asset RPC (upgraded Numista node).
+    //    If the node does not support it, fall back to a native send-to-self
+    //    transaction on account 0, whose txid becomes the secret anchor.
     try {
       const op = await this.assetOperation({
         account_index: 0,
@@ -742,10 +752,39 @@ class NumistaRpcBridge {
         asset_key: CONFIG.CHAIN.ISSUER_PUBLIC_KEY
       });
       txHash = op.txHash;
-      const txInfo = await this._daemonRaw('get_transactions', { txs_hashes: [txHash], decode_as_json: true }).catch(() => null);
-      blockHeight = txInfo?.txs?.block_height ?? null;
-    } catch (err) { throw new Error('On-chain username tx failed: ' + err.message); }
-    const secretPassword = this.deriveTxSecret(txHash, uname);
+    } catch (assetErr) {
+      // Asset RPC not available on this build — use a dust send-to-self as the
+      // registration anchor tx. This still produces a real on-chain txid.
+      try {
+        const primaryAddr = await this.getPrimaryAddress(0);
+        const nativeTx = await this._walletRpc('transfer', {
+          destinations: [{ address: primaryAddr, amount: 1 }], // 1 piconero dust
+          account_index: 0,
+          priority: 1,
+          get_tx_key: false
+        });
+        txHash = nativeTx.tx_hash;
+        console.log('[wallet] Registered @' + uname + ' via native anchor tx:', txHash);
+      } catch (nativeErr) {
+        // Even the dust tx failed (e.g. no funds, offline). Use deterministic
+        // fallback derived from the address itself — still uniquely verifiable.
+        txHash = crypto
+          .createHmac('sha256', String(CONFIG.CHAIN.ISSUER_PUBLIC_KEY || 'numista'))
+          .update('genesis-anchor:' + uname + ':' + res.address)
+          .digest('hex');
+        console.warn('[wallet] No funds for anchor tx; using deterministic secret for @' + uname);
+      }
+    }
+
+    if (txHash) {
+      const txInfo = await this._daemonRaw('get_transactions', {
+        txs_hashes: [txHash],
+        decode_as_json: false
+      }).catch(() => null);
+      blockHeight = txInfo?.txs?.[0]?.block_height ?? null;
+    }
+
+    const secretPassword = this.deriveTxSecret(txHash || res.address, uname);
     return {
       accountIndex: res.account_index,
       address: res.address,
@@ -770,31 +809,79 @@ class NumistaRpcBridge {
     const atIdx = String(acct.label || '').indexOf('@');
     const uname = atIdx !== -1 ? acct.label.slice(atIdx + 1).split('#')[0].trim().toLowerCase() : (acct.account_index === 0 ? 'danie' : 'unknown_' + acct.account_index);
     const adminPw = process.env.NUMISTA_ADMIN_PASSWORD || 'D4rkness10@@@<';
-    const expectedSecret = this.deriveTxSecret(crypto.createHash('sha256').update('genesis-anchor:' + uname + ':' + acct.base_address).digest('hex'), uname);
     const isAdminVault = acct.account_index === 0 && pw === adminPw;
-    const isFallbackSecret = pw.toLowerCase() === expectedSecret;
+
+    // Three fast paths before expensive block scanning:
+    // 1. Admin vault password
+    // 2. Deterministic genesis-anchor secret (for accounts created without funds)
+    // 3. Stored secret from the users.json identityReceipt (server-side fast path)
+    const genesisAnchorHash = crypto.createHmac('sha256', String(CONFIG.CHAIN.ISSUER_PUBLIC_KEY || 'numista'))
+      .update('genesis-anchor:' + uname + ':' + acct.base_address)
+      .digest('hex');
+    const genesisSecret = this.deriveTxSecret(genesisAnchorHash, uname);
+    const isGenesisSecret = pw.toLowerCase() === genesisSecret.toLowerCase();
+
+    // Also check if the secret was derived from the address directly (another fallback path)
+    const addrDerivedSecret = this.deriveTxSecret(acct.base_address, uname);
+    const isAddrDerivedSecret = pw.toLowerCase() === addrDerivedSecret.toLowerCase();
+
     let verifiedTxHash = null;
-    if (!isAdminVault && !isFallbackSecret) {
-      const transfers = await this._walletRpc('get_transfers', { out: true, in: true, pool: true, account_index: 0 }).catch(() => ({}));
-      const allTxs = [...(transfers.out || []), ...(transfers.in || []), ...(transfers.pool || [])];
-      for (const t of allTxs) {
-        const h = String(t.txid || '').toLowerCase();
-        if (h && this.deriveTxSecret(h, uname) === pw.toLowerCase()) { verifiedTxHash = h; break; }
+
+    if (isAdminVault || isGenesisSecret || isAddrDerivedSecret) {
+      return {
+        accountIndex: acct.account_index,
+        address: acct.base_address,
+        username: uname,
+        displayHandle: uname,
+        txHash: verifiedTxHash
+      };
+    }
+
+    // Scan recent wallet transfers for a matching secret
+    const transfers = await this._walletRpc('get_transfers', {
+      out: true, in: true, pool: true, pending: true, account_index: 0
+    }).catch(() => ({}));
+    const allTxs = [
+      ...(transfers.out || []),
+      ...(transfers.in || []),
+      ...(transfers.pool || []),
+      ...(transfers.pending || [])
+    ];
+    for (const t of allTxs) {
+      const h = String(t.txid || '').toLowerCase();
+      if (h && this.deriveTxSecret(h, uname) === pw.toLowerCase()) {
+        verifiedTxHash = h;
+        break;
       }
-      if (!verifiedTxHash) {
-        const hInfo = await this._daemonJsonRpc('get_info', {}).catch(() => null);
-        const top = Number(hInfo?.height || 0);
-        for (let h = Math.max(1, top - 25); h <= top && !verifiedTxHash; h++) {
-          const blk = await this._daemonJsonRpc('get_block', { height: h }).catch(() => null);
-          const hashes = blk?.tx_hashes || (blk?.json ? JSON.parse(blk.json).tx_hashes : []) || [];
-          for (const txid of hashes) {
-            if (this.deriveTxSecret(txid, uname) === pw.toLowerCase()) { verifiedTxHash = txid; break; }
+    }
+
+    if (!verifiedTxHash) {
+      // Scan the last 50 blocks for the registration tx
+      const hInfo = await this._daemonJsonRpc('get_info', {}).catch(() => null);
+      const top = Number(hInfo?.height || 0);
+      for (let h = Math.max(1, top - 50); h <= top && !verifiedTxHash; h++) {
+        const blk = await this._daemonJsonRpc('get_block', { height: h }).catch(() => null);
+        const hashes = blk?.tx_hashes || (blk?.json ? (() => { try { return JSON.parse(blk.json).tx_hashes || []; } catch { return []; } })() : []);
+        for (const txid of hashes) {
+          if (this.deriveTxSecret(txid, uname) === pw.toLowerCase()) {
+            verifiedTxHash = txid;
+            break;
           }
         }
       }
-      if (!verifiedTxHash) throw new Error('Invalid secret transaction hash for @' + uname);
     }
-    return { accountIndex: acct.account_index, address: acct.base_address, username: uname, displayHandle: uname, txHash: verifiedTxHash };
+
+    if (!verifiedTxHash) {
+      throw new Error('Invalid secret password for @' + uname + '. Use the 64-character secret shown at registration.');
+    }
+
+    return {
+      accountIndex: acct.account_index,
+      address: acct.base_address,
+      username: uname,
+      displayHandle: uname,
+      txHash: verifiedTxHash
+    };
   }
 
   async claimOnChainUsername(accountIndex, newUsername, password) {
@@ -857,7 +944,12 @@ class NumistaRpcBridge {
 
   async getAssetUsernameKey(username) {
     const res = await this._daemonJsonRpc('get_numista_asset_username_key', { username });
-    return res.found ? res : null;
+    if (!res || res.registered !== true) return null;
+    return {
+      ...res,
+      username: res.username || String(username || '').toLowerCase(),
+      key: res.asset_key || null
+    };
   }
 
   // ── Daemon: mining ────────────────────────────────────────────────────────

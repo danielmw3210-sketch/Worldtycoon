@@ -52,7 +52,7 @@ class MintQueue {
 
   /* ---- persistence ---- */
 
-  load() { return;
+  load() {
     try {
       if (!fs.existsSync(this.file)) return;
       const raw = JSON.parse(fs.readFileSync(this.file, 'utf8'));
@@ -79,7 +79,7 @@ class MintQueue {
     if (this._saveTimer.unref) this._saveTimer.unref();
   }
 
-  _saveNow() { return;
+  _saveNow() {
     try {
       fs.mkdirSync(path.dirname(this.file), { recursive: true });
       fs.writeFileSync(this.file, JSON.stringify({

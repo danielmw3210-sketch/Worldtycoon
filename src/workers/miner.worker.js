@@ -1,6 +1,6 @@
 let isMining = false;
 let currentJob = null;
-let rxMod = null;
+let rxMod = null, rxMem = null;
 let rxReady = false;
 let hashesCalculated = 0;
 let lastReportTime = performance.now();
@@ -21,11 +21,11 @@ function bytesToHex(bytes) {
 async function ensureRandomX(seedHex) {
   if (!rxMod) {
     importScripts('/randomx.js');
-    rxMod = await createRandomXModule({ locateFile: (f) => '/' + f });
+    rxMem = new WebAssembly.Memory({ initial: 5120, maximum: 32768 }); rxMod = await createRandomXModule({ wasmMemory: rxMem, locateFile: (f) => '/' + f });
   }
   const seedBytes = hexToBytes(seedHex || '00'.repeat(32));
   const seedPtr = rxMod._malloc(32);
-  (rxMod.HEAPU8 || new Uint8Array(rxMod.wasmMemory.buffer)).set(seedBytes.subarray(0, 32), seedPtr);
+  new Uint8Array(rxMem.buffer).set(seedBytes.subarray(0, 32), seedPtr);
   const rc = rxMod._rx_init(seedPtr, 32);
   rxMod._free(seedPtr);
   rxReady = (rc === 0);
@@ -46,28 +46,28 @@ async function runMiningLoop() {
 
   const inPtr = rxMod._rx_get_input_ptr();
   const outPtr = rxMod._rx_get_output_ptr();
-  (rxMod.HEAPU8 || new Uint8Array(rxMod.wasmMemory.buffer)).set(blobBytes, inPtr);
+  new Uint8Array(rxMem.buffer).set(blobBytes, inPtr);
 
   const batchSize = 32; // Genuine RandomX rx/0 programs per tick
   let nonce = (Math.floor(Math.random() * 0x7fffffff)) >>> 0;
 
   for (let i = 0; i < batchSize && isMining; i++) {
     nonce = (nonce + 1) >>> 0;
-    (rxMod.HEAPU8 || new Uint8Array(rxMod.wasmMemory.buffer))[inPtr + 39] = nonce & 0xff;
-    (rxMod.HEAPU8 || new Uint8Array(rxMod.wasmMemory.buffer))[inPtr + 40] = (nonce >>> 8) & 0xff;
-    (rxMod.HEAPU8 || new Uint8Array(rxMod.wasmMemory.buffer))[inPtr + 41] = (nonce >>> 16) & 0xff;
-    (rxMod.HEAPU8 || new Uint8Array(rxMod.wasmMemory.buffer))[inPtr + 42] = (nonce >>> 24) & 0xff;
+    new Uint8Array(rxMem.buffer)[inPtr + 39] = nonce & 0xff;
+    new Uint8Array(rxMem.buffer)[inPtr + 40] = (nonce >>> 8) & 0xff;
+    new Uint8Array(rxMem.buffer)[inPtr + 41] = (nonce >>> 16) & 0xff;
+    new Uint8Array(rxMem.buffer)[inPtr + 42] = (nonce >>> 24) & 0xff;
 
     rxMod._rx_hash(blobBytes.length);
     hashesCalculated++;
 
     // Read 64-bit little-endian top word of 32-byte RandomX output (bytes 24..31)
-    const dv = new DataView((rxMod.HEAPU8?.buffer || rxMod.wasmMemory.buffer), outPtr + 24, 8);
+    const dv = new DataView(rxMem.buffer, outPtr + 24, 8);
     const top64 = dv.getBigUint64(0, true);
     // Share target (~1 in 128 RandomX hashes submits a valid PPLNS share; full block target also checked on daemon)
     if (top64 < 0x0200000000000000n) {
-      const nonceHex = bytesToHex((rxMod.HEAPU8 || new Uint8Array(rxMod.wasmMemory.buffer)).subarray(inPtr + 39, inPtr + 43));
-      const resultHex = bytesToHex((rxMod.HEAPU8 || new Uint8Array(rxMod.wasmMemory.buffer)).subarray(outPtr, outPtr + 32));
+      const nonceHex = bytesToHex(new Uint8Array(rxMem.buffer).subarray(inPtr + 39, inPtr + 43));
+      const resultHex = bytesToHex(new Uint8Array(rxMem.buffer).subarray(outPtr, outPtr + 32));
       self.postMessage({ type: 'SHARE_FOUND', jobId: currentJob.jobId, nonceHex, resultHex });
     }
   }

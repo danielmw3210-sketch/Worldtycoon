@@ -1,6 +1,6 @@
 import { numistaRpc } from '../server/numista/rpc.js';
 
-const BASE = (process.env.BASE_URL || 'https://onrender.com').replace(/\/$/, '');
+const BASE = (process.env.BASE_URL || 'httpshttps://onrender.com').replace(/\/$/, '');
 const PW = process.env.TEST_PW || 'D4rkness10@@@@';
 const VAULT_ADDR = 'SbMqyiLDAv6QtTCX1n1JJnLuZL7j3RxKKcdvdTA1F15HeygxXzf982K2CdYGNc7J9pL9ZX71E8byHLFuhSH6TDBx1pNJ46GYn';
 const PLAYER_ADDR = 'UGN5xgg5afC1EwvVHC3pbiDMBQadaihEeQibHKyU6pQVT34YT2tW4cThugPTpFYP6LM3KdCmy1LGTKjtRTv3FMf12e5eQ7uLm';

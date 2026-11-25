@@ -693,7 +693,7 @@ class NumistaRpcBridge {
   async findWalletAccount(username) { const m = String(username || '').trim().toLowerCase().match(/^unknown_(\d+)$/); if (m) { const idx = Number(m[1]); const all0 = await this._walletRpc('get_accounts', {}).catch(() => null); const hit = (all0?.subaddress_accounts || []).find(a => a.account_index === idx); if (hit) return hit; }
     const clean = String(username || '').trim().toLowerCase();
     if (!clean || clean.length < 2) return null;
-    const all = await this._walletRpc('get_accounts', {}).catch(() => null);
+    await this.ensureWalletOpen().catch(() => {}); const all = await this._walletRpc('get_accounts', {});
     const matches = (all?.subaddress_accounts || [])
       .filter(a => a.account_index > 0 && a.label)
       .filter(a => {
@@ -734,7 +734,7 @@ class NumistaRpcBridge {
   async authenticateByAddressOrName(identifier, password) {
     const id = String(identifier || '').trim();
     const lower = id.toLowerCase().replace(/^@/, '');
-    const all = await this._walletRpc('get_accounts', {}).catch(() => null);
+    await this.ensureWalletOpen().catch(() => {}); const all = await this._walletRpc('get_accounts', {});
     let acct = (all?.subaddress_accounts || []).find(a =>
       a.account_index >= 0 && (
         String(a.base_address || '').trim() === id ||
@@ -769,7 +769,7 @@ class NumistaRpcBridge {
     if (!/^[a-z0-9._-]{3,24}$/.test(clean)) throw new Error('Username must be 3-24 chars (letters, numbers, ., _, -)');
     const existing = await this.findWalletAccount(clean);
     if (existing && existing.account_index !== accountIndex) throw new Error('Handle @' + clean + ' is already minted on-chain');
-    const all = await this._walletRpc('get_accounts', {}).catch(() => null);
+    await this.ensureWalletOpen().catch(() => {}); const all = await this._walletRpc('get_accounts', {});
     const curAcct = (all?.subaddress_accounts || []).find(a => a.account_index === accountIndex);
     const oldHashIdx = String(curAcct?.label || '').lastIndexOf('#');
     const existingTag = oldHashIdx !== -1 ? curAcct.label.slice(oldHashIdx + 1).trim() : this._makeVerifier(password || 'default');

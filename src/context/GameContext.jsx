@@ -293,7 +293,7 @@ const register = async (username, password) => {
           else if (ev.data.type === 'SHARE_FOUND') {
             try {
               const sr = await fetch('/api/mining/stratum/submit', { method: 'POST', headers: sessionHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ jobId: ev.data.jobId, nonceHex: ev.data.nonceHex, resultHex: ev.data.resultHex }) });
-              if (sr.ok) { const sd = await sr.json(); setSharesSubmitted(p => p + 1); if (sd.status) setStratumStatus(sd.status); }
+              if (sr.ok) { const sd = await sr.json(); setSharesSubmitted(p => p + 1); if (sd.status) { setStratumStatus(sd.status); if (sd.status.jobId && sd.status.blob) workersRef.current.forEach(wk => wk.postMessage({ type: 'UPDATE_JOB', job: sd.status })); } }
             } catch {}
           }
         };
@@ -512,7 +512,7 @@ const register = async (username, password) => {
         totalHashes,
         sharesSubmitted,
         minedSessionNum,
-        startMining,
+        threads, setThreads, startMining,
         stopMining,
         // Toasts
         toasts,

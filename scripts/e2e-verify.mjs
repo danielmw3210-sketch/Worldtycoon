@@ -30,7 +30,7 @@ async function run() {
 
   // 0. Ensure Account #0 & Account #1 have valid _makeVerifier labels on local wallet RPC
   try {
-    await numistaRpc.setAccountLabel(0, `Sovereign Vault @danie#${numistaRpc._makeVerifier(PW)}`);
+    const accts = await numistaRpc._walletRpc('get_accounts', {}); while ((accts.subaddress_accounts || []).length < 2) { await numistaRpc._walletRpc('create_account', { label: 'Unknown #1' }); accts.subaddress_accounts.push({}); } await numistaRpc.setAccountLabel(0, `Sovereign Vault @danie#${numistaRpc._makeVerifier(PW)}`);
     await numistaRpc.setAccountLabel(1, `Unknown #1#${numistaRpc._makeVerifier(PW)}`);
     await numistaRpc.storeWallet();
     log('0. Sync Wallet Verifier Labels', true, 'Account #0 (@danie) & Account #1 synced');

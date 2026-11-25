@@ -23,7 +23,7 @@ services:
       - key: NUMISTA_ISSUER_WALLET_PASSWORD
         sync: false
       - key: NUMISTA_ISSUER_PUBLIC_KEY
-        value: 3f50a0c86240ef57be837c5c3e6ca4f669db3b13e7954700337b0613bdd08b04
+        value: c98dc334ccfb8ecfc6f40557823b7702dbe3caaa1202d50eb84424925748e30d
       - key: NUMISTA_TREASURY_USER
         value: crown_treasury
       - key: NUMISTA_ADMINS

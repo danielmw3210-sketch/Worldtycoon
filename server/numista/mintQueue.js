@@ -215,6 +215,7 @@ class MintQueue {
       if (!step.compensation && job.steps.some(s => !s.compensation && s.status === 'failed')) continue;
 
       if (step.status === 'pending') {
+        if (job.steps.some(prev => !prev.compensation && prev.status === 'submitted')) return;
         try {
           const result = await this.adapter.execute(step.operation);
           step.status = 'submitted';

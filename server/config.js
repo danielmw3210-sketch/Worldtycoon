@@ -85,7 +85,7 @@ export const CONFIG = {
     // Native coin address that receives block rewards and backs the game
     // treasury. From the node's miner wallet document.
     TREASURY_ADDRESS: process.env.NUMISTA_TREASURY_ADDRESS ||
-      "Gt2AXeyZZ6DZn1tpMo6hS77cJ4BBQKTgSRfREqKkBBFcaqbkiEgh4QYMaFg7QfpY8852LfVyRmFfJHZu4CEqFUanCPvZjvN",
+      "SbMqyiLDAv6QtTCX1n1JJnLuZL7j3RxKKcdvdTA1F15HeygxXzf982K2CdYGNc7J9pL9ZX71E8byHLFuhSH6TDBx1pNJ46GYn",
     TREASURY_USERNAME: process.env.NUMISTA_TREASURY_USER || "crown_treasury"
   },
 
@@ -111,14 +111,14 @@ export const CONFIG = {
     MINING_ROUND_REWARD: Number(process.env.NUMISTA_MINING_ROUND_REWARD || 50),
     MINING_POOL_FEE_RATE: Number(process.env.NUMISTA_MINING_POOL_FEE || 0.02),
     MINING_SHARE_REWARD: 0.05, // NUM rewarded per accepted share (fallback under PPS)
-    MINING_PAYOUT_THRESHOLD: 1, // mining rewards settle on-chain once they reach 1 NUM
+    MINING_PAYOUT_THRESHOLD: 0.25, // mining rewards settle on-chain once they reach 1 NUM
     MINING_DIFFICULTY: 16017, // Matches user's live daemon difficulty
     EXCHANGE_RATE_GBP: 0.45,
     EXCHANGE_RATE_XMR: 0.0035,
     EXCHANGE_RATE_USDT: 0.58,
 
     // Property economy
-    INCOME_PAYBACK_HOURS: 720, // price / 240 = base income per hour
+    INCOME_PAYBACK_HOURS: 1440, // price / 240 = base income per hour
     INCOME_ACCRUAL_CAP_HOURS: 24, // uncollected income caps at 24h
     UPGRADE_MAX_LEVEL: 5,
     UPGRADE_COST_RATE: 0.4, // cost per level = 40% of plot price * current level

@@ -692,14 +692,14 @@ class NumistaRpcBridge {
 
   async findWalletAccount(username) {
     const clean = String(username || '').trim().toLowerCase();
-    if (!clean) return null;
+    if (!clean || clean.length < 2) return null;
     const all = await this._walletRpc('get_accounts', {}).catch(() => null);
     const matches = (all?.subaddress_accounts || [])
       .filter(a => a.account_index > 0 && a.label)
       .filter(a => {
         const lbl = a.label.toLowerCase();
         const atIdx = lbl.indexOf('@');
-        if (atIdx === -1) return lbl === clean;
+        if (atIdx === -1) return false;
         const namePart = lbl.slice(atIdx + 1).split('#');
         return namePart.at(0) === clean;
       })

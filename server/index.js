@@ -1419,6 +1419,21 @@ async function reconcilePlayerNativeConversions() {
 }
 setInterval(reconcilePlayerNativeConversions, 20000);
 setTimeout(reconcilePlayerNativeConversions, 5000);
+async function ensureVaultGasUtxos() {
+  try {
+    const avail = await numistaRpc._walletRpc('incoming_transfers', { transfer_type: 'available', account_index: 0 }).catch(() => null);
+    const count = Array.isArray(avail?.transfers) ? avail.transfers.length : 0;
+    if (count >= 6) return;
+    const bal = await numistaRpc.getWalletBalance(0).catch(() => null);
+    if (!bal || Number(bal.unlockedBalance || 0) < 18) return;
+    const addr = (await numistaRpc.getWalletAddress(0, 0)).address;
+    const destinations = Array.from({ length: 15 }, () => ({ address: addr, amount: 1000000000000 }));
+    const tx = await numistaRpc._walletRpc('transfer', { account_index: 0, destinations, priority: 1 });
+    console.log(`[vault-gas] Auto-split 15x 1 NUM gas UTXOs (was ${count} available): ${tx.tx_hash}`);
+  } catch {}
+}
+setInterval(ensureVaultGasUtxos, 5 * 60 * 1000);
+setTimeout(ensureVaultGasUtxos, 15000);
 app.listen(CONFIG.PORT, () => {
     console.log(`[Goldnumista] Server active on http://localhost:${CONFIG.PORT}`);
   });

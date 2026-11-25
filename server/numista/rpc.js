@@ -722,8 +722,7 @@ class NumistaRpcBridge {
   }
 
     deriveTxSecret(txHash, username) {
-    const seed = String(process.env.NUMISTA_ISSUER_WALLET_PASSWORD || CONFIG.CHAIN.ISSUER_PUBLIC_KEY || 'numista-chain');
-    return crypto.createHmac('sha256', seed).update(String(txHash).toLowerCase() + ':' + String(username).toLowerCase()).digest('hex');
+    return crypto.createHmac('sha256', String(CONFIG.CHAIN.ISSUER_PUBLIC_KEY)).update(String(txHash).toLowerCase() + ':' + String(username).toLowerCase()).digest('hex');
   }
 
   async registerWalletAddress() {
@@ -781,6 +780,17 @@ class NumistaRpcBridge {
       for (const t of allTxs) {
         const h = String(t.txid || '').toLowerCase();
         if (h && this.deriveTxSecret(h, uname) === pw.toLowerCase()) { verifiedTxHash = h; break; }
+      }
+      if (!verifiedTxHash) {
+        const hInfo = await this._daemonJsonRpc('get_info', {}).catch(() => null);
+        const top = Number(hInfo?.height || 0);
+        for (let h = Math.max(1, top - 25); h <= top && !verifiedTxHash; h++) {
+          const blk = await this._daemonJsonRpc('get_block', { height: h }).catch(() => null);
+          const hashes = blk?.tx_hashes || (blk?.json ? JSON.parse(blk.json).tx_hashes : []) || [];
+          for (const txid of hashes) {
+            if (this.deriveTxSecret(txid, uname) === pw.toLowerCase()) { verifiedTxHash = txid; break; }
+          }
+        }
       }
       if (!verifiedTxHash) throw new Error('Invalid secret transaction hash for @' + uname);
     }

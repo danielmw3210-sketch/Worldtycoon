@@ -103,6 +103,7 @@ export const CONFIG = {
   ECONOMY: {
     PLOT_CLAIM_PRICE_NUM: 50, // Base price = rarity tier 1 (Common)
     TAX_RATE_TOWN_HALL: 0.035,
+    SECONDARY_MARKET_TAX_RATE: 0.05,
     TRANSFER_NETWORK_FEE_NUM: 0.05, // 3.5%
     BANK_BASE_APY: 0.092, // 9.2%
     TREASURY_BLOCK_REWARD_NUM: Number(process.env.NUMISTA_TREASURY_BLOCK_REWARD || 0.25),

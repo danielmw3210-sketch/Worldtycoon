@@ -428,6 +428,7 @@ app.get('/api/assets/:assetId/balance/:username', async (req, res) => {
 // COIN MINTS (admin only)
 // ----------------------------------------------------
 
+app.post("/api/plots/:id/list", (req, res) => { try { const u = requireSessionUser(req, res); if (!u) return; const plot = gameStore.listPlotForSale(req.params.id, u, req.body?.priceNum); res.json({ success: true, plot: toPublicPlot(plot) }); } catch (e) { res.status(400).json({ error: e.message }); } }); app.post("/api/plots/:id/buy", (req, res) => { try { const u = requireSessionUser(req, res); if (!u) return; const out = gameStore.buyListedPlot(req.params.id, u); res.json({ success: true, ...out, plot: toPublicPlot(out.plot), wallet: walletView(u) }); } catch (e) { res.status(400).json({ error: e.message }); } }); app.post("/api/mint/predecimal", (req, res) => { try { const u = requireSessionUser(req, res); if (!u) return; const out = gameStore.mintPreDecimalAssortment({ amountNum: req.body?.amountNum, mintPlotId: req.body?.mintPlotId, username: u }); res.json({ success: true, ...out, wallet: walletView(u) }); } catch (e) { res.status(400).json({ error: e.message }); } });
 app.post('/api/mint/issue', (req, res) => {
   try {
     const { metal, weightGrams, purity, mintPlotId } = req.body;

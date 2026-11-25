@@ -4,7 +4,7 @@ const GameContext = createContext(null);
 
 export function GameProvider({ children }) {
   // Auth & User State
-  const [user, setUser] = useState(() => {
+  const [user, setUser, setUser] = useState(() => {
     try {
       const saved = localStorage.getItem('goldnumista_user');
       return saved ? JSON.parse(saved) : null;
@@ -233,7 +233,7 @@ const register = async (username, password) => {
       .then(res => (res.ok ? res.json() : null))
       .then(data => {
         if (cancelled || !data?.role) return;
-        const next = { ...user, role: data.role };
+        const next = { ...user, setUser, role: data.role };
         setUser(next);
         localStorage.setItem('goldnumista_user', JSON.stringify(next));
       })
@@ -476,7 +476,7 @@ const register = async (username, password) => {
   return (
     <GameContext.Provider
       value={{
-        user,
+        user, setUser,
         login,
         register,
         logout,

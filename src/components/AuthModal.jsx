@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useGame } from '../context/GameContext';
 
 export default function AuthModal({ onLoginSuccess }) {
-  const { setUser, addToast } = useGame();
+  const { setUser, setActiveModal, addToast } = useGame();
   const [tab, setTab] = useState('login');
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
@@ -26,7 +26,7 @@ export default function AuthModal({ onLoginSuccess }) {
       localStorage.setItem('goldnumista_user', JSON.stringify(authObj));
       setUser(authObj);
       addToast('Signed in to ' + (data.address ? data.address.slice(0, 12) + '...' : data.username), 'success');
-      if (onLoginSuccess) onLoginSuccess();
+      setActiveModal(null); if (onLoginSuccess) onLoginSuccess();
     } catch (err) {
       addToast(err.message, 'error');
     } finally {
@@ -80,7 +80,7 @@ export default function AuthModal({ onLoginSuccess }) {
               <div className="font-mono text-[11px] text-white break-all bg-slate-950 p-2.5 rounded-lg border border-slate-800 select-all">{generatedAddress}</div>
               <div className="flex gap-2">
                 <button type="button" onClick={() => { navigator.clipboard.writeText(generatedAddress); addToast('Address copied!', 'success'); }} className="flex-1 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold">Copy Address</button>
-                <button type="button" onClick={() => { if (onLoginSuccess) onLoginSuccess(); }} className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold">Enter Game</button>
+                <button type="button" onClick={() => { setActiveModal(null); if (onLoginSuccess) onLoginSuccess(); }} className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold">Enter Game</button>
               </div>
             </div>
           ) : tab === 'login' ? (

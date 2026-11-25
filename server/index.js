@@ -520,6 +520,7 @@ app.get('/api/auctions', (req, res) => {
   });
 });
 
+app.post("/api/auctions/create", (req, res) => { try { const u = requireSessionUser(req, res); if (!u) return; const { category, assetRef, title, startingBid, buyoutPrice, durationHours } = req.body || {}; const auc = gameStore.createUniversalAuction({ seller: u, category, assetRef, title, startingBid, buyoutPrice, durationHours }); res.json({ success: true, auction: auc }); } catch (e) { res.status(400).json({ error: e.message }); } }); app.post("/api/auctions/:id/buyout", async (req, res) => { try { const u = requireSessionUser(req, res); if (!u) return; const auc = gameStore.buyoutAuction(req.params.id, u); if (auc.category === "Tradeable @Handle" && auc.assetRef) { const recv = await getOrCreateReceiveAddress(u).catch(() => null); const usr = userManager.getUser(u); if (recv?.accountIndex > 0) await numistaRpc.claimOnChainUsername(recv.accountIndex, auc.assetRef, usr?.password || "").catch(() => {}); } res.json({ success: true, auction: auc, wallet: walletView(u) }); } catch (e) { res.status(400).json({ error: e.message }); } });
 app.post('/api/auctions/:id/bid', (req, res) => {
   try {
     const { amount } = req.body;

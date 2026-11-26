@@ -191,12 +191,7 @@ class UserManager {
       const b = Buffer.from(expected);
       if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
       const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
-      const clean = String(data.u || '').trim().toLowerCase();
-      if (!clean) return null;
-      if (!this.users.has(clean)) {
-        this.users.set(clean, { username: clean, role: CONFIG.ADMIN_USERS.includes(clean) ? 'admin' : 'user', createdAt: new Date().toISOString(), wallet: this._emptyWallet(), receiveAddress: null, chainIdentity: 'registered', identityReceipt: null });
-      }
-      return this.getUser(clean);
+      return this.getUser(data.u);
     } catch {
       return null;
     }

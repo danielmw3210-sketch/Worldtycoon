@@ -625,6 +625,8 @@ class ChainAdapter {
 
     let params;
     if (op.kind === 'create_asset') {
+      const existingAsset = await numistaRpc.getAsset(op.assetId).catch(() => null);
+      if (existingAsset?.found) return { txHash: existingAsset.tx_hash || 'existing-on-chain', confirmed: true };
       params = {
         ...base,
         action: 'create_asset',

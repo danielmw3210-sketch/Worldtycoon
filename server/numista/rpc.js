@@ -579,7 +579,7 @@ class NumistaRpcBridge {
     if (!toAddress) throw new Error('A destination address is required');
     const result = await this._walletRpc('transfer', {
       destinations: [{ address: toAddress, amount: this._toPico(amountNum) }],
-      account_index: accountIndex,
+      account_index: accountIndex, subaddr_indices: [0],
       priority,
       get_tx_key: true,
       payment_id: paymentId

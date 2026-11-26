@@ -180,7 +180,7 @@ class GameStore {
             plot.building.stats.totalTaxesCollected = 0;
           }
         }
-        if (saved.pendingJobId) plot.pendingJobId = saved.pendingJobId;
+        if (saved.pendingJobId || saved.nftState?.stage === 'pending') { plot.isClaimed = false; plot.owner = null; plot.building = null; plot.pendingJobId = null; plot.nftState = { stage: 'unminted' }; }
         plot.nftState = this._normaliseNftState(plot, saved.nftState);
         if (plot.isClaimed) restored++;
       });

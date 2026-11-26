@@ -466,6 +466,8 @@ app.get('/api/plots/:id', (req, res) => {
 });
 
 // Claim plot: registers the deed to a USERNAME and mints it on-chain.
+app.post('/api/plots/:id/unfreeze', (req, res) => { const p = gameStore.getPlotById(req.params.id); if (!p) return res.status(404).json({ error: 'Plot not found' }); const prevOwner = p.owner; p.isClaimed = false; p.owner = null; p.building = null; p.pendingJobId = null; p.nftState = { stage: 'unminted' }; if (prevOwner) { const bal = chainLedger.getBalance(prevOwner); if (bal.locked > 0) chainLedger.unlock(prevOwner, bal.locked); } gameStore.save(); res.json({ ok: true, plot: p }); });
+
 app.post('/api/plots/:id/claim', (req, res) => {
   try {
     const username = requireSessionUser(req, res);

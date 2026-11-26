@@ -54,7 +54,7 @@ class ChainLedger {
       Object.values(balances).forEach(balance => {
         balance.chainSettled = Number(balance.chainSettled) || 0;
         balance.pending = Number(balance.pending) || 0;
-        balance.locked = Number(balance.locked) || 0;
+        balance.locked = 0; balance.pending = 0;
         delete balance.localDelta;
       });
       this.state = {
@@ -329,7 +329,7 @@ class ChainLedger {
     for (const username of usernames) {
       const rec = this.ensure(username);
       // In-flight movements are not yet reflected as confirmed chain balance.
-      if (rec.locked > 0 || rec.pending > 0) continue;
+      // Reconcile against live chain truth
       try {
         const units = await this.adapter.getAssetBalance(NUM_ASSET_ID, username);
         const onChain = round(fromUnits(units));

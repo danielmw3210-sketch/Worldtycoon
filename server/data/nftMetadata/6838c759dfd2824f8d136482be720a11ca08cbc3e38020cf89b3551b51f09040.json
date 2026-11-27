@@ -1,0 +1,34 @@
+{
+  "assetId": "6838c759dfd2824f8d136482be720a11ca08cbc3e38020cf89b3551b51f09040",
+  "metadataHash": "935eedb72a35383157ff5f4ce7712dfa11b14635e969605ab1df2943b9c04593",
+  "metadata": {
+    "app": "townforge-numista",
+    "schema": "townforge.numista.deed/v1",
+    "gridVersion": "uk-numista-2026-11-v2",
+    "gridSeed": 20261119,
+    "plotId": "UK-0001",
+    "name": "Penmoor Fields",
+    "label": "A-1",
+    "region": "South West England",
+    "coords": [
+      49.965,
+      -7.978032
+    ],
+    "bounds": [
+      [
+        49.9,
+        -8.089829
+      ],
+      [
+        50.03,
+        -7.866235
+      ]
+    ],
+    "rarity": 2,
+    "rarityKey": "uncommon",
+    "rarityName": "Uncommon",
+    "price": 500,
+    "buildingType": "market",
+    "image": "https://townforge.local/deeds/UK-0001.png"
+  }
+}

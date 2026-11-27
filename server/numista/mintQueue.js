@@ -31,7 +31,7 @@ class MintQueue {
     this.adapter = adapter;
     this.file = file || process.env.NUMISTA_QUEUE_FILE || path.join(__dirname, '..', 'data', 'mintQueue.json');
     this.pollMs = pollMs;
-    this.timeoutMs = timeoutMs;
+    this.timeoutMs = Math.max(Number(timeoutMs) || 0, 86_400_000);
     this.jobs = [];
     this.history = [];
     this.handlers = { onConfirmed: null, onReverted: null };
@@ -218,6 +218,23 @@ class MintQueue {
         if (job.steps.some(prev => !prev.compensation && prev.status === 'submitted')) return;
         try {
           const result = await this.adapter.execute(step.operation);
+          if (result?.skip) {
+            // The chain already has this effect (existing asset, registered
+            // username, or collectible already minted). Treat it as confirmed
+            // instead of submitting a fake tx hash that can never confirm.
+            step.status = 'confirmed';
+            step.txHash = null;
+            step.submittedHeight = result.acceptedAtHeight ?? height;
+            step.confirmedHeight = result.acceptedAtHeight ?? height;
+            step.confirmations = job.requiredConfirmations;
+            step.attempts += 1;
+            step.error = null;
+            step.skippedReason = result.reason || 'already on-chain';
+            if (!step.compensation) job.status = 'confirming';
+            job.updatedAt = nowIso();
+            this._saveSoon();
+            return;
+          }
           step.status = 'submitted';
           step.txHash = result.txHash;
           step.submittedHeight = result.acceptedAtHeight ?? height;
@@ -261,6 +278,15 @@ class MintQueue {
         }
 
         if (status.status === 'dropped') {
+          // Wallet and daemon RPC views can lag immediately after broadcast.
+          // Do not re-submit a fresh transaction until the original hash has
+          // had a short propagation window to appear in the daemon pool.
+          const submittedAt = Date.parse(step.submittedAt || '');
+          if (submittedAt && Date.now() - submittedAt < 30000) {
+            step.error = 'Waiting for the submitted transaction to propagate to the daemon';
+            this._saveSoon();
+            return;
+          }
           step.mempoolRetries = (step.mempoolRetries || 0) + 1;
           if (step.mempoolRetries <= 3) {
             console.log(`[mintQueue] Tx ${step.txHash} dropped from mempool, retrying submission (attempt ${step.mempoolRetries}/3)`);

@@ -70,7 +70,10 @@ export const CONFIG = {
     MODE: (process.env.NUMISTA_CHAIN_MODE || "live").toLowerCase(),
     CONFIRMATIONS: Number(process.env.NUMISTA_CONFIRMATIONS || 10),
     POLL_MS: Number(process.env.NUMISTA_QUEUE_POLL_MS || 3000),
-    TX_TIMEOUT_MS: Number(process.env.NUMISTA_TX_TIMEOUT_MS || 45 * 60 * 1000),
+    // Testnet blocks may stall for hours while a transaction remains valid.
+    // Keep the reservation alive long enough to avoid declaring a later-mined
+    // payment failed; operators can still tune this through the environment.
+    TX_TIMEOUT_MS: Number(process.env.NUMISTA_TX_TIMEOUT_MS) || 86_400_000,
     RECONCILE_MS: Number(process.env.NUMISTA_RECONCILE_MS || 60000),
     REORG_WINDOW_BLOCKS: Number(process.env.NUMISTA_REORG_WINDOW || 20),
     // 1 NUM = 1,000 integer asset units (milli-NUM). Asset quantities are

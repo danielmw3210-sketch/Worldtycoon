@@ -1,0 +1,34 @@
+{
+  "assetId": "ff9e9dc95470e75a0996abb4a0600b8dd75a1e69814424b6027412fc888db002",
+  "metadataHash": "6dd40809903a7d849cd45d01d087e933a15724ee0d6da31818962f19cc788f6b",
+  "metadata": {
+    "app": "townforge-numista",
+    "schema": "townforge.numista.deed/v1",
+    "gridVersion": "uk-numista-2026-11-v2",
+    "gridSeed": 20261119,
+    "plotId": "UK-1027",
+    "name": "Ivyvale Reach",
+    "label": "AA-21",
+    "region": "Midlands",
+    "coords": [
+      52.565,
+      -2.16461
+    ],
+    "bounds": [
+      [
+        52.5,
+        -2.276407
+      ],
+      [
+        52.63,
+        -2.052814
+      ]
+    ],
+    "rarity": 1,
+    "rarityKey": "common",
+    "rarityName": "Common",
+    "price": 50,
+    "buildingType": "terraced_row",
+    "image": "https://townforge.local/deeds/UK-1027.png"
+  }
+}

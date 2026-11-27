@@ -1,10 +1,13 @@
 import { deriveDeterministicCoinEra } from '../numista/chainIndexer.js';
+import { randomUUID } from 'crypto';
+let DatabaseSync = null;
+try { ({ DatabaseSync } = await import('node:sqlite')); } catch { /* JSON persistence remains available on older Node runtimes. */ }
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import {
   generateGridPlots,
-  rollBuildingDeterministic,
+  generateResourceDeposits,
   rarityByTier,
   baseIncomeForPrice,
   incomePerHourFor,
@@ -12,6 +15,7 @@ import {
 } from './plotGrid.js';
 import { CONFIG } from '../config.js';
 import { mintQueue } from '../numista/mintQueue.js';
+import { chainAdapter } from '../numista/chainAdapter.js';
 import { chainLedger } from './chainLedger.js';
 import { userManager } from './users.js';
 import {
@@ -21,7 +25,10 @@ import {
   deedAssetId,
   deedMetadata,
   metadataHash,
+  sha256Hex,
   saveDeedMetadata,
+  readDeedMetadata,
+  METADATA_DIR,
   toUnits,
   fromUnits
 } from './deedRegistry.js';
@@ -39,11 +46,30 @@ function round(n, places = 6) {
 class GameStore {
   constructor() {
     this.plots = generateGridPlots();
+    this.plots.forEach(plot => { plot.maxHealth = plot.isCastle ? 1000 : 100; plot.health = plot.maxHealth; plot.fortificationLevel ||= 0; });
     this.mintLedger = [];
     this.statePath = process.env.NUMISTA_STATE_FILE || path.join(__dirname, 'gameState.json');
+    this.databasePath = process.env.NUMISTA_DATABASE_FILE || path.join(__dirname, 'gameState.sqlite');
+    this.gameDb = null;
+    if (DatabaseSync) {
+      try {
+        this.gameDb = new DatabaseSync(this.databasePath);
+        this.gameDb.exec('PRAGMA journal_mode = WAL; CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS game_state (id INTEGER PRIMARY KEY CHECK (id = 1), payload TEXT NOT NULL, updated_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS battle_events (asset_id TEXT PRIMARY KEY, report_json TEXT NOT NULL, tx_hash TEXT NOT NULL, block_height INTEGER NOT NULL, created_at TEXT NOT NULL); INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES(1, CURRENT_TIMESTAMP);');
+      } catch (err) { console.warn('[store] SQLite unavailable; using JSON persistence:', err.message); this.gameDb = null; }
+    }
+    this.seasonStartedAt = null;
     this._saveTimer = null;
     this.pendingMining = new Map();
     this.pendingUsernameRegistrations = new Set();
+    this._deedReconcileAt = 0;
+    this._deedReconcilePromise = null;
+    this.playerTitles = {};
+    this.playerArmies = {};
+    this.playerSoldiers = {};
+    this.playerCoinPurses = {};
+    this.playerEquipment = {};
+    this.battleLog = [];
+    this._lastResourceSaveAt = 0;
 
     // Default Auction House Listings
     this.auctions = [
@@ -154,17 +180,31 @@ class GameStore {
 
   loadState() {
     try {
-      if (!fs.existsSync(this.statePath)) return;
-      const raw = JSON.parse(fs.readFileSync(this.statePath, 'utf8'));
+      let raw = null;
+      if (this.gameDb) {
+        const row = this.gameDb.prepare('SELECT payload FROM game_state WHERE id = 1').get();
+        if (row?.payload) raw = JSON.parse(row.payload);
+      }
+      if (!raw && fs.existsSync(this.statePath)) raw = JSON.parse(fs.readFileSync(this.statePath, 'utf8'));
+      if (!raw) return;
+      // Begin the new game progression cleanly while retaining chain balances
+      // and deeds, which are restored by the chain-backed systems.
+      if (raw.gameVersion !== 3) {
+        console.log('[store] Starting fresh game progression (version 3)');
+        return;
+      }
+      this.seasonStartedAt = raw.seasonStartedAt || raw.savedAt || new Date().toISOString();
       if (Array.isArray(raw.mints)) this.mintLedger = raw.mints;
       if (raw.userBanks && typeof raw.userBanks === 'object') this.userBanks = raw.userBanks;
       if (raw.userStocks && typeof raw.userStocks === 'object') this.userStocks = raw.userStocks;
-      if (Array.isArray(raw.auctions)) {
-        this.auctions = this.auctions.map(auction => {
-          const saved = raw.auctions.find(item => item.id === auction.id);
-          return saved?.escrowOnChain ? { ...auction, ...saved } : auction;
-        });
-      }
+      if (raw.playerTitles && typeof raw.playerTitles === 'object') this.playerTitles = raw.playerTitles;
+      if (raw.playerArmies && typeof raw.playerArmies === 'object') this.playerArmies = raw.playerArmies;
+      Object.entries(this.playerArmies).forEach(([owner, formations]) => { if (!Array.isArray(formations)) this.playerArmies[owner] = []; });
+      if (raw.playerSoldiers && typeof raw.playerSoldiers === 'object') this.playerSoldiers = raw.playerSoldiers;
+      if (raw.playerCoinPurses && typeof raw.playerCoinPurses === 'object') this.playerCoinPurses = raw.playerCoinPurses;
+      if (raw.playerEquipment && typeof raw.playerEquipment === 'object') this.playerEquipment = raw.playerEquipment;
+      if (Array.isArray(raw.battleLog)) this.battleLog = raw.battleLog;
+      if (Array.isArray(raw.auctions)) this.auctions = raw.auctions;
 
       const byId = new Map(this.plots.map(p => [p.id, p]));
       let restored = 0;
@@ -173,6 +213,14 @@ class GameStore {
         if (!plot) return;
         plot.isClaimed = !!saved.isClaimed;
         plot.owner = saved.owner || null;
+        plot.isCastle = !!saved.isCastle;
+        plot.castleOwner = saved.castleOwner || null;
+        plot.controller = saved.controller || plot.castleOwner || null;
+        plot.garrison = Number(saved.garrison) || 0;
+        plot.health = Number(saved.health) || (saved.isCastle ? 1000 : 100);
+        plot.maxHealth = Number(saved.maxHealth) || plot.health;
+        plot.fortificationLevel = Number(saved.fortificationLevel) || 0;
+        plot.siege = saved.siege || null;
         if (saved.building) {
           plot.building = saved.building;
           if (plot.building.type === 'town_hall' && plot.building.stats) {
@@ -180,7 +228,12 @@ class GameStore {
             plot.building.stats.totalTaxesCollected = 0;
           }
         }
-        if (saved.pendingJobId || saved.nftState?.stage === 'pending') { plot.isClaimed = false; plot.owner = null; plot.building = null; plot.pendingJobId = null; plot.nftState = { stage: 'unminted' }; }
+        plot.stockpile = saved.stockpile || plot.stockpile;
+        plot.resourceDeposits = saved.resourceDeposits || plot.resourceDeposits;
+        plot.resourceSeed = saved.resourceSeed || plot.resourceSeed;
+        plot.structures = saved.structures || plot.structures;
+        plot.lastResourceAt = saved.lastResourceAt || null;
+        if (saved.pendingJobId || saved.nftState?.stage === 'pending') { plot.pendingJobId = null; plot.nftState = { ...this._normaliseNftState(plot, saved.nftState), stage: 'onchain', mintedAt: new Date().toISOString() }; }
         plot.nftState = this._normaliseNftState(plot, saved.nftState);
         if (plot.isClaimed) restored++;
       });
@@ -188,6 +241,7 @@ class GameStore {
       const legacy = this.plots.filter(p => p.nftState?.stage === 'legacy_simulated').length;
       console.log(`[store] Restored ${restored} claimed plots from disk` +
         (legacy ? ` (${legacy} legacy simulated deed(s) marked)` : ''));
+      if (this.gameDb && !this.gameDb.prepare('SELECT 1 AS present FROM game_state WHERE id = 1').get()) this.saveState();
     } catch (err) {
       console.warn('[store] Failed to load game state:', err.message);
     }
@@ -243,13 +297,413 @@ class GameStore {
     };
   }
 
+  /**
+   * Deterministic building for a plot. Used both when a claim is first
+   * submitted and when claimed plots are rebuilt from chain data after a
+   * restart, so a recovered deed has the same property as the original claim.
+   */
+  _claimBuilding(plot, cost = null) {
+    const price = Number(cost) || Number(plot.price) || CONFIG.ECONOMY.PLOT_CLAIM_PRICE_NUM;
+    const baseIncomePerHour = baseIncomeForPrice(price, plot.rarity, 0.2);
+    const rolled = { name: 'Peasant Lodge' };
+    return {
+      type: 'peasant_lodge',
+      category: 'housing',
+      name: `${rolled.name} · ${plot.label}`,
+      level: 1,
+      description: 'A humble homestead. It provides a small steady income and can be expanded into a local settlement.',
+      adminOnly: false,
+      variableYield: false,
+      baseIncomePerHour,
+      incomePerHour: incomePerHourFor(baseIncomePerHour, 1),
+      stats: {
+        accruedIncome: 0,
+        totalIncomeCollected: 0,
+        claimedAt: new Date().toISOString()
+      },
+      name: `Peasant Lodge - ${plot.label}`
+    };
+  }
+
+  _tickPlotResources(plot, tickHours) {
+    const stockpile = plot.stockpile || (plot.stockpile = { wood: 24, iron: 6, tin: 0, copper: 0, silver: 0, gold: 0 });
+    const deposits = plot.resourceDeposits || (plot.resourceDeposits = {});
+    for (const structure of (plot.structures || [])) {
+      if (!structure.resource || !(Number(deposits[structure.resource]) > 0)) continue;
+      const produced = Math.min(Number(deposits[structure.resource]), Number(structure.outputPerHour || 0) * Math.max(1, Number(structure.level) || 1) * tickHours);
+      deposits[structure.resource] = +(Number(deposits[structure.resource]) - produced).toFixed(3);
+      stockpile[structure.resource] = +(Number(stockpile[structure.resource] || 0) + produced).toFixed(3);
+    }
+  }
+
+  buildPlotStructure(plotId, username, structureType) {
+    const plot = this.getPlotById(plotId);
+    const clean = String(username || '').replace(/^@/, '').toLowerCase();
+    if (!plot?.isClaimed || plot.nftState?.stage === 'pending') throw new Error('A confirmed claimed plot is required');
+    if (String(plot.owner || '').replace(/^@/, '').toLowerCase() !== clean && String(plot.controller || '').toLowerCase() !== clean) throw new Error('Only the plot owner can build here');
+    if (mintQueue.getJobForPlot(plotId)) throw new Error('Wait for the current plot transaction to confirm before building');
+    if (plot.building?.type !== 'peasant_lodge') throw new Error('Only a Peasant Lodge plot can be developed in this game phase');
+    const definitions = {
+      forge: { name: 'Settlement Forge', resource: null, rate: 0, cost: { wood: 12, iron: 2 } },
+      woodcutter: { name: 'Woodcutter Camp', resource: 'wood', rate: 15, cost: { wood: 10 } },
+      iron_mine: { name: 'Iron Mine', resource: 'iron', rate: 8, cost: { wood: 12 } },
+      tin_mine: { name: 'Tin Mine', resource: 'tin', rate: 7, cost: { wood: 12 } },
+      copper_mine: { name: 'Copper Mine', resource: 'copper', rate: 6, cost: { wood: 12 } },
+      silver_mine: { name: 'Silver Mine', resource: 'silver', rate: 3.5, cost: { wood: 16, iron: 2 } },
+      gold_mine: { name: 'Gold Mine', resource: 'gold', rate: 2, cost: { wood: 20, iron: 4 } }
+    };
+    const definition = definitions[structureType];
+    if (!definition) throw new Error('Choose a valid settlement building');
+    if (definition.resource && !(Number(plot.resourceDeposits?.[definition.resource]) > 0)) throw new Error(`This plot has no ${definition.resource} deposit`);
+    if (!plot.structures?.length) plot.structures = [{ type: 'peasant_lodge', name: 'Peasant Lodge', level: 1 }];
+    const builtCount = plot.structures.filter(s => s.type !== 'peasant_lodge').length;
+    if (builtCount >= Number(plot.building.level || 1)) throw new Error('Upgrade the Peasant Lodge to unlock another building plot');
+    if (plot.structures.some(s => s.type === structureType)) throw new Error('This building is already on the plot');
+    const stockpile = plot.stockpile || (plot.stockpile = { wood: 24, iron: 6, tin: 0, copper: 0, silver: 0, gold: 0 });
+    for (const [resource, amount] of Object.entries(definition.cost)) {
+      if (Number(stockpile[resource] || 0) < amount) throw new Error(`Requires ${amount} ${resource}`);
+    }
+    for (const [resource, amount] of Object.entries(definition.cost)) stockpile[resource] = +(stockpile[resource] - amount).toFixed(3);
+    plot.structures.push({ type: structureType, name: definition.name, resource: definition.resource, outputPerHour: definition.rate, level: 1, builtAt: new Date().toISOString() });
+    this.scheduleSave();
+    return plot;
+  }
+
+  getArmy(username) {
+    const clean = String(username || '').replace(/^@/, '').toLowerCase();
+    const soldiers = this.playerSoldiers[clean] || [];
+    const units = { levy: 0, archer: 0, cavalry: 0 };
+    soldiers.forEach(s => { if (units[s.type] !== undefined) units[s.type]++; });
+    return { username: clean, peerage: this.playerTitles[clean] || null, unlocked: !!this.playerTitles[clean], units, soldiers, armies: Object.values(this.playerArmies).flat().filter(a => a.owner === clean), coinBalance: Number(this.playerCoinPurses[clean] || 0), battles: this.battleLog.filter(b => b.attacker === clean || b.defender === clean).slice(0, 20) };
+  }
+
+  craftEquipment(plotId, username, recipeKey) {
+    const plot = this.getPlotById(plotId), clean = String(username || '').replace(/^@/, '').toLowerCase();
+    if (!plot?.isClaimed || String(plot.owner || '').replace(/^@/, '').toLowerCase() !== clean) throw new Error('Only the plot owner can craft here');
+    if (!(plot.structures || []).some(s => s.type === 'forge')) throw new Error('Build a Settlement Forge on this plot first');
+    const recipes = { bronze_sword: { name: 'Bronze Sword', attack: 4, defense: 0, cost: { wood: 2, tin: 1, copper: 1 } }, iron_sword: { name: 'Iron Sword', attack: 7, defense: 0, cost: { wood: 2, iron: 2 } }, bronze_mail: { name: 'Bronze Mail', attack: 0, defense: 4, cost: { wood: 2, tin: 2, copper: 2 } }, iron_mail: { name: 'Iron Mail', attack: 0, defense: 7, cost: { wood: 2, iron: 4 } }, bow: { name: 'War Bow', attack: 3, defense: 0, cost: { wood: 3 } } };
+    const recipe = recipes[recipeKey]; if (!recipe) throw new Error('Unknown equipment recipe');
+    const stock = plot.stockpile || {};
+    for (const [r, n] of Object.entries(recipe.cost)) if (Number(stock[r] || 0) < n) throw new Error(`Requires ${n} ${r}`);
+    Object.entries(recipe.cost).forEach(([r, n]) => stock[r] = +(Number(stock[r] || 0) - n).toFixed(3));
+    const inventory = this.playerSoldiers[clean] || (this.playerSoldiers[clean] = []);
+    const item = { id: randomUUID(), key: recipeKey, name: recipe.name, attack: recipe.attack, defense: recipe.defense, owner: clean, createdAt: new Date().toISOString() };
+    (this.playerEquipment ||= {})[clean] ||= []; this.playerEquipment[clean].push(item); this.scheduleSave(); return { item, inventory: this.playerEquipment[clean], plot };
+  }
+
+  getEquipment(username) { return (this.playerEquipment?.[String(username || '').replace(/^@/, '').toLowerCase()] || []); }
+
+  equipSoldier(username, soldierId, itemId) { const clean = String(username || '').replace(/^@/, '').toLowerCase(), soldier = (this.playerSoldiers[clean] || []).find(s => s.id === soldierId); if (!soldier || soldier.armyId) throw new Error('Choose an unassigned soldier'); const inventory = this.playerEquipment[clean] || [], index = inventory.findIndex(i => i.id === itemId); if (index < 0) throw new Error('Equipment not in your inventory'); const item = inventory.splice(index, 1)[0]; const slot = item.defense ? 'armor' : 'weapon'; const old = soldier[slot]; soldier[slot] = item; if (old) inventory.push(old); this.scheduleSave(); return { soldier, equipment: inventory }; }
+
+  healSoldier(username, soldierId) { const clean = String(username || '').replace(/^@/, '').toLowerCase(), soldier = (this.playerSoldiers[clean] || []).find(s => s.id === soldierId); if (!soldier) throw new Error('Soldier not found'); if (soldier.hp >= soldier.maxHp) throw new Error('This soldier is already at full health'); const army = (Array.isArray(this.playerArmies[clean]) ? this.playerArmies[clean] : []).find(a => a.id === soldier.armyId); if (army && army.status !== 'idle') throw new Error('Soldiers can only recover while their army is idle'); const cost = 0.05, purse = Number(this.playerCoinPurses[clean] || 0); if (purse < cost) throw new Error('Healing costs 0.05 minted coin value'); this.playerCoinPurses[clean] = round(purse - cost, 6); soldier.hp = Math.min(soldier.maxHp, soldier.hp + 25); soldier.unpaidDays = 0; this.scheduleSave(); return { soldier, coinBalance: this.playerCoinPurses[clean] }; }
+
+  createArmy(username, name, soldierIds = []) {
+    const clean = String(username || '').replace(/^@/, '').toLowerCase(); if (!this.playerTitles[clean]) throw new Error('Buy a peerage before commanding an army');
+    const roster = this.playerSoldiers[clean] || []; const selected = [...new Set(soldierIds)];
+    if (!selected.length || selected.some(id => !roster.some(s => s.id === id && !s.armyId))) throw new Error('Select available soldiers for this army');
+    const armies = this.playerArmies[clean] || (this.playerArmies[clean] = []); if (!Array.isArray(armies)) throw new Error('Legacy troop roster is being migrated; refresh after restart');
+    const army = { id: randomUUID(), owner: clean, name: String(name || 'Household Guard').slice(0, 40), soldierIds: selected, locationPlotId: roster.find(s => selected.includes(s.id))?.homePlotId || this.plots.find(p => p.isCastle)?.id || this.plots[0]?.id || null, targetPlotId: null, route: [], status: 'idle', createdAt: new Date().toISOString() };
+    selected.forEach(id => { const soldier = roster.find(s => s.id === id); soldier.armyId = army.id; }); armies.push(army); this.scheduleSave(); return army;
+  }
+
+  moveArmy(username, armyId, targetPlotId, siege = false) {
+    const clean = String(username || '').replace(/^@/, '').toLowerCase(), army = (this.playerArmies[clean] || []).find(a => a.id === armyId);
+    if (!army) throw new Error('Army not found'); if (army.status !== 'idle') throw new Error('This army is already travelling or fighting');
+    const from = this.getPlotById(army.locationPlotId), target = this.getPlotById(targetPlotId); if (!from || !target) throw new Error('Choose valid origin and destination plots');
+    if (siege && !target.isClaimed) throw new Error('You can only attack a claimed plot');
+    if (siege && String(target.controller || target.castleOwner || target.owner || '').replace(/^@/, '').toLowerCase() === clean) throw new Error('You cannot attack your own plot');
+    const byCell = new Map(this.plots.filter(p => Number.isFinite(Number(p.row)) && Number.isFinite(Number(p.col))).map(p => [`${p.row}:${p.col}`, p]));
+    const startKey = `${from.row}:${from.col}`, targetKey = `${target.row}:${target.col}`;
+    const queue = [startKey], previous = new Map([[startKey, null]]);
+    for (let cursor = 0; cursor < queue.length && !previous.has(targetKey); cursor++) {
+      const [row, col] = queue[cursor].split(':').map(Number);
+      for (const [r, c] of [[row-1,col],[row+1,col],[row,col-1],[row,col+1]]) {
+        const key = `${r}:${c}`;
+        if (byCell.has(key) && !previous.has(key)) { previous.set(key, queue[cursor]); queue.push(key); }
+      }
+    }
+    const pathKeys = [];
+    if (previous.has(targetKey)) { for (let key = targetKey; key && key !== startKey; key = previous.get(key)) pathKeys.unshift(key); }
+    const route = pathKeys.length ? pathKeys.map(key => byCell.get(key).id) : [target.id];
+    const distance = route.length;
+    if (distance < 1) throw new Error('Army is already at that plot');
+    const soldiers = (this.playerSoldiers[clean] || []).filter(s => army.soldierIds.includes(s.id)); if (!soldiers.length) throw new Error('Army has no soldiers');
+    if (!army.locationPlotId) army.locationPlotId = soldiers.find(s => s.homePlotId)?.homePlotId || this.plots.find(p => p.isCastle)?.id || this.plots[0]?.id || null;
+    const speed = Math.max(1, Math.min(...soldiers.map(s => s.speed || 1)));
+    army.originPlotId = from.id; army.startedAt = new Date().toISOString(); army.travelMs = Math.max(15000, distance * 60000 / speed);
+    army.targetPlotId = target.id; army.route = route; army.status = siege ? 'marching_to_siege' : 'marching'; army.siegeTarget = !!siege; army.arrivesAt = new Date(Date.now() + army.travelMs).toISOString();
+    this.scheduleSave(); return army;
+  }
+
+  resolveSiege(army) {
+    const attacker = army.owner, target = this.getPlotById(army.targetPlotId);
+    if (!target?.isClaimed || army.pendingBattleId) return null;
+    const soldiers = (this.playerSoldiers[attacker] || []).filter(s => army.soldierIds.includes(s.id));
+    if (!soldiers.length) { army.status = 'idle'; army.targetPlotId = null; army.siegeTarget = false; army.arrivesAt = null; target.siege = null; this.scheduleSave(); return null; }
+    const battleId = randomUUID();
+    const randomSeed = sha256Hex(battleId);
+    let seed = Number.parseInt(randomSeed.slice(0, 8), 16) || 1;
+    const roll = () => { seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t ^= t + Math.imul(t ^ (t >>> 7), 61 | t); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+    const attackerPower = soldiers.reduce((sum, s) => sum + Number(s.attack || 0) + Number(s.weapon?.attack || 0), 0);
+    const defender = String(target.controller || target.castleOwner || target.owner || TREASURY).replace(/^@/, '').toLowerCase();
+    const defenderArmies = (Array.isArray(this.playerArmies[defender]) ? this.playerArmies[defender] : []).filter(a => a.locationPlotId === target.id && a.status === 'idle');
+    const defenderArmyIds = new Set(defenderArmies.map(a => a.id));
+    const defendingSoldiers = (this.playerSoldiers[defender] || []).filter(s => defenderArmyIds.has(s.armyId));
+    const garrisonBefore = Number(target.garrison || (target.isCastle ? 5 : 0));
+    const defense = Math.max(1, garrisonBefore * (target.isCastle ? 2 : 1) + Number(target.fortificationLevel || 0) * 12 + defendingSoldiers.reduce((n, s) => n + Number(s.attack || 0) + Number(s.defense || 0) + Number(s.armor?.defense || 0), 0));
+    const damage = Math.max(5, Math.floor(attackerPower * (0.45 + roll() * 0.25)));
+    const healthBefore = Number(target.health ?? (target.isCastle ? 1000 : 100));
+    const casualtyEvents = [];
+    const recordCasualties = (roster, side, chance) => {
+      if (!roster.length || roll() >= chance) return;
+      const losses = Math.min(roster.length, Math.max(1, Math.floor(roster.length * Math.min(0.5, chance * 0.5))));
+      roster.slice().sort((a, b) => a.hp - b.hp || a.id.localeCompare(b.id)).slice(0, losses).forEach(s => {
+        const armor = Math.min(0.7, (Number(s.defense || 0) + Number(s.armor?.defense || 0)) / 30);
+        const damageToSoldier = Math.ceil(s.maxHp * (0.25 + roll() * 0.35) * (1 - armor));
+        casualtyEvents.push({ side, soldierId: s.id, damage: damageToSoldier, killed: s.hp - damageToSoldier <= 0 });
+      });
+    };
+    const totalPower = attackerPower + defense;
+    recordCasualties(soldiers, 'attacker', Math.min(0.85, 0.25 + defense / totalPower * 0.5));
+    recordCasualties(defendingSoldiers, 'defender', Math.min(0.85, 0.25 + attackerPower / totalPower * 0.5));
+    const attackerSurvivors = soldiers.length - casualtyEvents.filter(event => event.side === 'attacker' && event.killed).length;
+    const defenderSurvivors = defendingSoldiers.length - casualtyEvents.filter(event => event.side === 'defender' && event.killed).length;
+    const garrisonDamage = target.isCastle ? Math.min(garrisonBefore, Math.max(1, Math.floor(damage / 25))) : 0;
+    const captured = healthBefore - damage <= 0 && attackerSurvivors > 0 && garrisonBefore - garrisonDamage <= 0 && defenderSurvivors === 0;
+    const at = new Date().toISOString();
+    const report = { app: 'townforge-numista', schema: 'townforge.numista.battle/v1', battleId, randomSeed, at, attacker, defender, armyId: army.id, plotId: target.id, attackerRoster: soldiers.map(s => ({ id: s.id, type: s.type, hp: s.hp, maxHp: s.maxHp, attack: s.attack, defense: s.defense, weapon: s.weapon ? { key: s.weapon.key, attack: s.weapon.attack } : null, armor: s.armor ? { key: s.armor.key, defense: s.armor.defense } : null })), defenderRoster: defendingSoldiers.map(s => ({ id: s.id, type: s.type, hp: s.hp, maxHp: s.maxHp, attack: s.attack, defense: s.defense, weapon: s.weapon ? { key: s.weapon.key, attack: s.weapon.attack } : null, armor: s.armor ? { key: s.armor.key, defense: s.armor.defense } : null })), defenderState: { controller: target.controller || target.castleOwner || target.owner || TREASURY, garrison: garrisonBefore, fortificationLevel: target.fortificationLevel || 0, plotHealth: healthBefore, maxHealth: target.maxHealth || (target.isCastle ? 1000 : 100) }, attackerPower, defenderPower: defense, plotHealthBefore: healthBefore, plotDamage: damage, garrisonDamage, casualtyEvents, captured, isCastle: !!target.isCastle, survivors: attackerSurvivors };
+    const assetId = sha256Hex(`townforge-numista:battle:v1:${battleId}`);
+    const hash = metadataHash(report);
+    let registrationSteps = [];
+    try {
+      saveDeedMetadata(assetId, report);
+      registrationSteps = this._registrationSteps([attacker]);
+      const job = mintQueue.enqueue({
+        type: 'battle_settlement', username: attacker, assetId,
+        requiredConfirmations: REQUIRED_CONFIRMATIONS,
+        snapshot: { report }, meta: { name: `Battle report ${target.label || target.id}`, plotId: target.id, battleId },
+        steps: [
+          ...registrationSteps,
+          { key: 'create', label: 'Commit immutable battle report hash', operation: { accountIndex: 0, kind: 'create_asset', assetId, assetType: DEED_ASSET_TYPE, maxSupply: 1, metadataHash: hash } },
+          { key: 'mint', label: 'Record battle report on chain', operation: { accountIndex: 0, kind: 'mint', assetId, assetType: DEED_ASSET_TYPE, recipient: attacker, amountUnits: 1 } }
+        ]
+      });
+      army.status = 'awaiting_battle_confirmation'; army.pendingBattleId = battleId; army.arrivesAt = null;
+      target.siege = { attacker, armyId: army.id, pendingBattleId: battleId, battleAssetId: assetId, settlementJobId: job.id };
+      this.scheduleSave(); return { battleId, assetId, job: mintQueue.publicJob(job), message: 'Battle result awaits on-chain confirmation.' };
+    } catch (error) {
+      registrationSteps.forEach(step => this.pendingUsernameRegistrations.delete(step.operation.username));
+      army.status = 'besieging'; army.arrivesAt = new Date(Date.now() + 60000).toISOString();
+      throw error;
+    }
+  }
+
+  repairPlot(plotId, username) { const plot = this.getPlotById(plotId), clean = String(username || '').replace(/^@/, '').toLowerCase(); if (!plot?.isClaimed || (plot.owner !== clean && plot.controller !== clean)) throw new Error('Only the owner can repair this plot'); const cost = { wood: 10, iron: 2 }; for (const [r,n] of Object.entries(cost)) if (Number(plot.stockpile?.[r] || 0) < n) throw new Error(`Repair requires ${n} ${r}`); Object.entries(cost).forEach(([r,n]) => plot.stockpile[r] -= n); plot.health = Math.min(plot.maxHealth || 100, Number(plot.health || 0) + 250); this.scheduleSave(); return plot; }
+
+  fortifyPlot(plotId, username) { const plot = this.getPlotById(plotId), clean = String(username || '').replace(/^@/, '').toLowerCase(); if (!plot?.isClaimed || (String(plot.owner || '').replace(/^@/, '').toLowerCase() !== clean && plot.controller !== clean)) throw new Error('Only the owner or controller can fortify this plot'); const level = Number(plot.fortificationLevel || 0); if (level >= 5) throw new Error('Fortification is already at the maximum level'); const cost = { wood: 20 * (level + 1), iron: 5 * (level + 1) }; for (const [r,n] of Object.entries(cost)) if (Number(plot.stockpile?.[r] || 0) < n) throw new Error(`Fortification level ${level + 1} requires ${n} ${r}`); Object.entries(cost).forEach(([r,n]) => plot.stockpile[r] = +(Number(plot.stockpile[r]) - n).toFixed(3)); plot.fortificationLevel = level + 1; plot.maxHealth = Number(plot.maxHealth || (plot.isCastle ? 1000 : 100)) + (plot.isCastle ? 150 : 25); plot.health = Math.min(plot.maxHealth, Number(plot.health || 0) + (plot.isCastle ? 150 : 25)); this.scheduleSave(); return plot; }
+
+  getConquerableCastles() {
+    return this.plots.filter(plot => plot.isCastle && plot.castleOwner);
+  }
+
+  conquerCastle(plotId, username) {
+    const clean = String(username || '').replace(/^@/, '').toLowerCase();
+    const plot = this.getPlotById(plotId);
+    if (!plot?.isCastle || plot.castleOwner !== TREASURY) throw new Error('This castle is not available to conquer');
+    if (!this.playerTitles[clean]) throw new Error('Buy a peerage before leading an army');
+    const army = this.playerArmies[clean] || { levy: 0, archer: 0, cavalry: 0 };
+    const strength = (Number(army.levy) || 0) + (Number(army.archer) || 0) * 1.5 + (Number(army.cavalry) || 0) * 3;
+    const garrison = Math.max(5, Number(plot.garrison) || 5);
+    if (strength < garrison) throw new Error(`Your army strength is ${strength.toFixed(1)}. This castle's garrison requires ${garrison}.`);
+
+    for (const unit of ['levy', 'archer', 'cavalry']) {
+      const committed = Number(army[unit]) || 0;
+      army[unit] = Math.max(0, committed - Math.ceil(committed * 0.2));
+    }
+    this.playerArmies[clean] = army;
+    plot.castleOwner = clean;
+    plot.owner = clean;
+    plot.garrison = Math.max(1, Math.floor(garrison * 0.6));
+    plot.castleConqueredAt = new Date().toISOString();
+    plot.building = { ...plot.building, name: `Castle Keep · ${plot.name}`, type: 'castle_keep', category: 'military', garrison: plot.garrison };
+    this.scheduleSave();
+    return { plot, army, message: `${plot.name} has been conquered. One fifth of each unit type was lost in the siege.` };
+  }
+
+  purchasePeerage(username, titleKey) {
+    const clean = String(username || '').replace(/^@/, '').toLowerCase();
+    const catalog = {
+      baron: { title: 'Baron / Baroness', price: 10 },
+      viscount: { title: 'Viscount / Viscountess', price: 25 },
+      earl: { title: 'Earl / Countess', price: 50 },
+      marquess: { title: 'Marquess / Marchioness', price: 100 },
+      duke: { title: 'Duke / Duchess', price: 250 },
+      elector: { title: 'Sovereign Elector', price: 500 }
+    };
+    const peerage = catalog[titleKey];
+    if (!peerage) throw new Error('Choose a valid peerage');
+    const job = this._enqueueNumTransfer({
+      type: 'title_purchase', from: clean, to: TREASURY, amount: peerage.price,
+      description: `Royal Peerage: ${peerage.title}`,
+      snapshot: { username: clean, title: peerage.title }
+    });
+    return { title: peerage.title, price: peerage.price, pending: true, job: mintQueue.publicJob(job) };
+  }
+
+  recruitSoldiers(username, unitType, count) {
+    const clean = String(username || '').replace(/^@/, '').toLowerCase();
+    if (!this.playerTitles[clean]) throw new Error('Buy your first peerage to unlock soldier recruitment');
+    const catalog = { levy: { name: 'Levy Spearman', price: 1 }, archer: { name: 'Bowman', price: 3 }, cavalry: { name: 'Light Cavalry', price: 8 } };
+    if (!Array.isArray(this.playerArmies[clean])) this.playerArmies[clean] = [];
+    const unit = catalog[unitType];
+    const quantity = Math.floor(Number(count));
+    if (!unit || quantity < 1 || quantity > 100) throw new Error('Recruit 1 to 100 valid soldiers at a time');
+    const cost = +(unit.price * quantity).toFixed(4);
+    const job = this._enqueueNumTransfer({
+      type: 'soldier_recruit', from: clean, to: TREASURY, amount: cost,
+      description: `Recruit ${quantity} ${unit.name}${quantity === 1 ? '' : 's'}`,
+      snapshot: { username: clean, unitType, count: quantity, cost }
+    });
+    return { pending: true, unitType, count: quantity, cost, job: mintQueue.publicJob(job), army: this.getArmy(clean) };
+  }
+
+  /**
+   * Rebuild deed ownership from the chain.
+   *
+   * The queue journal and metadata files are only used as an index of which
+   * asset IDs to look at. The chain is authoritative: an asset only becomes a
+   * claimed plot when `get_numista_asset` says it exists and the recorded owner
+   * actually holds one unit. This makes the runtime stateless across restarts
+   * without ever pretending an off-chain record is a minted deed.
+   */
+  async reconcileChainDeeds({ force = false } = {}) {
+    if (chainAdapter.mode !== 'live' && chainAdapter.mode !== 'simulate') return 0;
+    if (this._deedReconcilePromise) return this._deedReconcilePromise;
+    if (!force && Date.now() - this._deedReconcileAt < 15000) return 0;
+
+    this._deedReconcilePromise = (async () => {
+      this._deedReconcileAt = Date.now();
+      const candidates = new Map();
+
+      for (const job of [...mintQueue.jobs, ...mintQueue.history]) {
+        if (job.type !== 'claim' || !job.plotId || !job.assetId) continue;
+        const mint = job.steps?.find(step => step.key === 'mint' && !step.compensation);
+        if (!mint || mint.status !== 'confirmed') continue;
+        candidates.set(job.plotId, {
+          plotId: job.plotId,
+          assetId: job.assetId,
+          username: String(job.username || '').toLowerCase() || null,
+          job,
+          mint
+        });
+      }
+
+      // Metadata is an immutable chain-adjacent index. If the in-memory queue
+      // was lost, it still tells us which asset IDs may be deeds.
+      try {
+        if (fs.existsSync(METADATA_DIR)) {
+          for (const name of fs.readdirSync(METADATA_DIR)) {
+            if (!name.endsWith('.json')) continue;
+            const assetId = name.slice(0, -5);
+            const payload = readDeedMetadata(assetId);
+            const plotId = payload?.metadata?.plotId;
+            if (!plotId || candidates.has(plotId)) continue;
+            candidates.set(plotId, { plotId, assetId, username: null, job: null, mint: null });
+          }
+        }
+      } catch (err) {
+        console.warn('[store] Could not scan deed metadata:', err.message);
+      }
+
+      let applied = 0;
+      for (const candidate of candidates.values()) {
+        const plot = this.getPlotById(candidate.plotId);
+        if (!plot) continue;
+
+        const asset = await chainAdapter.getAsset(candidate.assetId).catch(() => null);
+        if (!asset) continue;
+
+        let owner = candidate.username;
+        let balance = owner
+          ? Number(await chainAdapter.getAssetBalance(candidate.assetId, owner).catch(() => 0))
+          : 0;
+
+        if (balance < 1) {
+          owner = null;
+          for (const username of userManager.allUsernames()) {
+            const units = Number(await chainAdapter.getAssetBalance(candidate.assetId, username).catch(() => 0));
+            if (units >= 1) {
+              owner = username;
+              balance = units;
+              break;
+            }
+          }
+        }
+        if (!owner || balance < 1) continue;
+
+        const localOwner = String(plot.owner || '').replace(/^@/, '').toLowerCase();
+        if (!plot.isCastle && plot.isClaimed && localOwner && localOwner !== owner) {
+          // Secondary-market sales update the local owner before the deed
+          // transfer is mirrored on-chain. Do not clobber that newer owner.
+          continue;
+        }
+
+        const building = candidate.job?.snapshot?.building || this._claimBuilding(plot, candidate.job?.snapshot?.cost);
+        const metadata = deedMetadata({ ...plot, buildingType: building?.type || null });
+        const hash = candidate.job?.snapshot?.metadataHash || metadataHash(metadata);
+        const mintedAt = candidate.mint?.submittedAt || asset.created_at || new Date().toISOString();
+
+        plot.isClaimed = true;
+        plot.owner = plot.isCastle ? (plot.castleOwner || TREASURY) : owner;
+        plot.building = plot.building || building;
+        if (!plot.structures?.length) plot.structures = [{ type: 'peasant_lodge', name: 'Peasant Lodge', level: 1 }];
+        if (candidate.job?.snapshot?.resourceDeposits) {
+          plot.resourceSeed = candidate.job.snapshot.resourceSeed;
+          plot.resourceDeposits = candidate.job.snapshot.resourceDeposits;
+          plot.stockpile = candidate.job.snapshot.stockpile || plot.stockpile;
+        }
+        plot.stockpile ||= { wood: 24, iron: 6, tin: 0, copper: 0, silver: 0, gold: 0 };
+        plot.lastResourceAt ||= new Date().toISOString();
+        plot.pendingJobId = null;
+        plot.nftState = {
+          stage: 'onchain',
+          assetId: candidate.assetId,
+          tokenId: candidate.assetId,
+          metadataHash: hash,
+          mintedAt,
+          txHash: candidate.mint?.txHash || asset.tx_hash || null,
+          blockHeight: candidate.mint?.confirmedHeight || asset.block_height || null,
+          confirmations: Number(candidate.job?.requiredConfirmations) || REQUIRED_CONFIRMATIONS,
+          jobId: candidate.job?.id || null,
+          confirmedAt: candidate.mint?.submittedAt || null
+        };
+        applied += 1;
+      }
+
+      if (applied) console.log(`[store] Reconciled ${applied} on-chain deed(s) from chain data`);
+      return applied;
+    })().finally(() => {
+      this._deedReconcilePromise = null;
+    });
+
+    return this._deedReconcilePromise;
+  }
+
   saveState() {
     try {
       const payload = {
+        gameVersion: 3,
+        seasonStartedAt: this.seasonStartedAt || new Date().toISOString(),
         savedAt: new Date().toISOString(),
         mints: this.mintLedger,
         userBanks: this.userBanks,
         userStocks: this.userStocks,
+        playerTitles: this.playerTitles,
+        playerArmies: this.playerArmies,
+        playerSoldiers: this.playerSoldiers,
+        playerCoinPurses: this.playerCoinPurses,
+        playerEquipment: this.playerEquipment,
+        battleLog: this.battleLog,
         auctions: this.auctions,
         plots: this.plots
           .filter(p => p.isClaimed || p.pendingJobId || p.nftState?.stage !== 'unminted')
@@ -257,18 +711,41 @@ class GameStore {
             id: p.id,
             isClaimed: p.isClaimed,
             owner: p.owner,
+            isCastle: !!p.isCastle,
+            castleOwner: p.castleOwner || null,
+            controller: p.controller || p.castleOwner || null,
+            garrison: Number(p.garrison) || 0,
+            health: Number(p.health) || (p.isCastle ? 1000 : 100),
+            maxHealth: Number(p.maxHealth) || (p.isCastle ? 1000 : 100),
+            fortificationLevel: Number(p.fortificationLevel) || 0,
+            siege: p.siege || null,
             pendingJobId: p.pendingJobId || null,
             building: p.building,
+            stockpile: p.stockpile,
+            resourceDeposits: p.resourceDeposits,
+            resourceSeed: p.resourceSeed,
+            structures: p.structures,
+            lastResourceAt: p.lastResourceAt,
             nftState: p.nftState
           }))
       };
-      fs.writeFileSync(this.statePath, JSON.stringify(payload), 'utf8');
+      const serialized = JSON.stringify(payload);
+      if (this.gameDb) {
+        this.gameDb.exec('BEGIN IMMEDIATE');
+        try {
+          this.gameDb.prepare('INSERT INTO game_state(id, payload, updated_at) VALUES(1, ?, ?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload, updated_at=excluded.updated_at').run(serialized, payload.savedAt);
+          const putBattle = this.gameDb.prepare('INSERT INTO battle_events(asset_id, report_json, tx_hash, block_height, created_at) VALUES(?, ?, ?, ?, ?) ON CONFLICT(asset_id) DO UPDATE SET report_json=excluded.report_json, tx_hash=excluded.tx_hash, block_height=excluded.block_height');
+          for (const battle of this.battleLog) if (battle.assetId && battle.txHash) putBattle.run(battle.assetId, JSON.stringify(battle), battle.txHash, Number(battle.blockHeight) || 0, battle.at || payload.savedAt);
+          this.gameDb.exec('COMMIT');
+        } catch (err) { this.gameDb.exec('ROLLBACK'); throw err; }
+      }
+      fs.writeFileSync(this.statePath, serialized, 'utf8');
     } catch (err) {
       console.warn('[store] Failed to save game state:', err.message);
     }
   }
 
-  scheduleSave() { return;
+  scheduleSave() {
     if (this._saveTimer) clearTimeout(this._saveTimer);
     this._saveTimer = setTimeout(() => {
       this._saveTimer = null;
@@ -287,8 +764,36 @@ class GameStore {
         job.steps
           .filter(step => step.operation?.kind === 'register_username' && step.status !== 'confirmed')
           .forEach(step => this.pendingUsernameRegistrations.add(step.operation.username));
+
+        // A claim still waiting for confirmations must keep the plot reserved
+        // across a restart, otherwise the UI shows it as unclaimed and another
+        // claim could be submitted for the same deed.
+        if (job.type === 'claim' && job.plotId && !job.gameApplied && Date.parse(job.createdAt || 0) >= Date.parse(this.seasonStartedAt || 0)) {
+          const plot = this.getPlotById(job.plotId);
+          const owner = String(job.username || '').toLowerCase();
+          if (plot && owner && !plot.pendingJobId &&
+              (!plot.owner || String(plot.owner).replace(/^@/, '').toLowerCase() === owner)) {
+            plot.isClaimed = true;
+            plot.owner = owner;
+            plot.building = plot.building || job.snapshot?.building || this._claimBuilding(plot, job.snapshot?.cost);
+            plot.pendingJobId = job.id;
+            plot.nftState = {
+              stage: 'pending',
+              assetId: job.assetId,
+              tokenId: job.assetId,
+              metadataHash: job.snapshot?.metadataHash || null,
+              mintedAt: null,
+              txHash: null,
+              blockHeight: null,
+              confirmations: 0,
+              jobId: job.id,
+              pendingSince: job.createdAt || new Date().toISOString()
+            };
+            recovered++;
+          }
+        }
       }
-      if (job.gameApplied) continue;
+      if (job.gameApplied && !(job.type === 'battle_settlement' && job.status === 'confirmed' && !this.battleLog.some(b => b.battleId === job.snapshot?.report?.battleId))) continue;
       if (job.status === 'confirmed') {
         this._onJobConfirmed(job);
         recovered++;
@@ -298,7 +803,7 @@ class GameStore {
       }
     }
     if (recovered) {
-      console.log(`[store] Reconciled ${recovered} completed mint job(s) after restart`);
+      console.log(`[store] Recovered ${recovered} mint job(s) after restart`);
       this.scheduleSave();
     }
   }
@@ -326,6 +831,7 @@ class GameStore {
     const accrualCapHours = CONFIG.ECONOMY.INCOME_ACCRUAL_CAP_HOURS || 24;
 
     this.plots.forEach(plot => {
+      if (plot.isClaimed && plot.health == null) { plot.maxHealth = plot.isCastle ? 1000 : 100; plot.health = plot.maxHealth; }
       // Income properties accrue rent every tick until the owner collects.
       if (plot.isClaimed && plot.building?.incomePerHour > 0) {
         const stats = plot.building.stats || (plot.building.stats = {});
@@ -333,7 +839,43 @@ class GameStore {
         const current = Number(stats.accruedIncome) || 0;
         stats.accruedIncome = +Math.min(cap, current + plot.building.incomePerHour * tickHours).toFixed(6);
       }
+      if (plot.isClaimed) this._tickPlotResources(plot, tickHours);
     });
+
+    let militaryChanged = false;
+    Object.entries(this.playerArmies).forEach(([owner, armies]) => {
+      if (!Array.isArray(armies)) return;
+      armies.forEach(army => {
+        if (army.status !== 'idle' && army.arrivesAt && Date.parse(army.arrivesAt) <= Date.now()) {
+          army.locationPlotId = army.targetPlotId;
+          if (army.siegeTarget) this.resolveSiege(army);
+          else { army.targetPlotId = null; army.route = []; army.status = 'idle'; army.arrivesAt = null; army.originPlotId = null; army.startedAt = null; army.travelMs = null; }
+          militaryChanged = true;
+        }
+      });
+    });
+    Object.entries(this.playerSoldiers).forEach(([owner, soldiers]) => {
+      const purseAtStart = Number(this.playerCoinPurses[owner] || 0);
+      let remainingPurse = purseAtStart;
+      for (let i = soldiers.length - 1; i >= 0; i--) {
+        const s = soldiers[i];
+        s.wageRemainder = (Number(s.wageRemainder) || 0) + 0.02 * tickHours / 24;
+        if (s.wageRemainder < 0.02) continue;
+        s.wageRemainder -= 0.02;
+        if (remainingPurse >= 0.02) { remainingPurse = round(remainingPurse - 0.02, 6); s.unpaidDays = 0; }
+        else {
+          s.unpaidDays = (Number(s.unpaidDays) || 0) + 1;
+          if (s.unpaidDays >= 7) { soldiers.splice(i, 1); const army = (this.playerArmies[owner] || []).find(a => a.id === s.armyId); if (army) army.soldierIds = army.soldierIds.filter(id => id !== s.id); militaryChanged = true; }
+        }
+      }
+      if (remainingPurse !== purseAtStart) this.playerCoinPurses[owner] = remainingPurse;
+    });
+    if (militaryChanged) this.scheduleSave();
+
+    if (Date.now() - this._lastResourceSaveAt > 60000) {
+      this._lastResourceSaveAt = Date.now();
+      this.scheduleSave();
+    }
 
     this._flushMiningRewards();
   }
@@ -377,35 +919,23 @@ class GameStore {
     }
 
     // Deterministic building + immutable metadata.
-    const rolled = rollBuildingDeterministic(plot.rarity, plot.id);
-    const baseIncomePerHour = baseIncomeForPrice(cost, plot.rarity, rolled.incomeFactor);
-    const building = {
-      type: rolled.key,
-      category: rolled.category,
-      name: `${rolled.name} Â· ${plot.label}`,
-      level: 1,
-      description: rolled.description,
-      adminOnly: !!rolled.adminOnly,
-      metal: rolled.metal || null,
-      variableYield: !!rolled.variableYield,
-      baseIncomePerHour,
-      incomePerHour: incomePerHourFor(baseIncomePerHour, 1),
-      stats: {
-        accruedIncome: 0,
-        totalIncomeCollected: 0,
-        claimedAt: new Date().toISOString()
-      }
-    };
+    const building = this._claimBuilding(plot, cost);
+    const resourceSeed = randomUUID();
+    const resourceDeposits = generateResourceDeposits(resourceSeed, plot.rarity);
 
     const assetId = deedAssetId(plot.id);
-    const metadata = deedMetadata({ ...plot, buildingType: rolled.key });
+    const metadata = deedMetadata({ ...plot, buildingType: building.type });
     const hash = metadataHash(metadata);
     saveDeedMetadata(assetId, metadata);
 
     const snapshot = {
       plotId: plot.id,
       cost,
-      building: null,
+      building,
+      resourceSeed,
+      resourceDeposits,
+      stockpile: { wood: 24, iron: 6, tin: 0, copper: 0, silver: 0, gold: 0 },
+      metadataHash: hash,
       isClaimed: false,
       owner: null,
       nftState: { ...plot.nftState }
@@ -430,7 +960,7 @@ class GameStore {
           key: 'payment',
           label: `Pay ${cost.toLocaleString()} NUM deed price`,
           operation: {
-          accountIndex: userManager.getUser(username)?.receiveAddress?.accountIndex || 0,
+          accountIndex: 0,
           kind: 'transfer',
             assetId: NUM_ASSET_ID,
             assetType: CURRENCY_ASSET_TYPE,
@@ -451,7 +981,7 @@ class GameStore {
           key: 'create',
           label: 'Create deed asset (collectible, cap 1)',
           operation: {
-          accountIndex: userManager.getUser(username)?.receiveAddress?.accountIndex || 0,
+          accountIndex: 0,
           kind: 'create_asset',
             assetId,
             assetType: DEED_ASSET_TYPE,
@@ -464,7 +994,7 @@ class GameStore {
           key: 'mint',
           label: 'Mint deed to owner',
           operation: {
-          accountIndex: userManager.getUser(username)?.receiveAddress?.accountIndex || 0,
+          accountIndex: 0,
           kind: 'mint',
             assetId,
             assetType: DEED_ASSET_TYPE,
@@ -492,6 +1022,11 @@ class GameStore {
     plot.isClaimed = true;
     plot.owner = cleanUsername;
     plot.building = building;
+    plot.structures = [{ type: 'peasant_lodge', name: 'Peasant Lodge', level: 1, builtAt: new Date().toISOString() }];
+    plot.resourceSeed = resourceSeed;
+    plot.resourceDeposits = resourceDeposits;
+    plot.stockpile = { ...snapshot.stockpile };
+    plot.lastResourceAt = new Date().toISOString();
     plot.pendingJobId = job.id;
     plot.nftState = {
       stage: 'pending',
@@ -527,7 +1062,7 @@ class GameStore {
     if (plot.nftState?.stage === 'pending') {
       throw new Error("This deed is still confirming â€” income collection unlocks once it is on-chain");
     }
-    if ((plot.owner || '').toLowerCase() !== (username || '').toLowerCase()) {
+    if ((plot.owner || '').replace(/^@/, '').toLowerCase() !== (username || '').replace(/^@/, '').toLowerCase()) {
       throw new Error("Only the deed owner can collect this property's income");
     }
 
@@ -584,11 +1119,48 @@ class GameStore {
     };
   }
 
+  collectAllIncome(username = "danie") {
+    const clean = String(username || '').replace(/^@/, '').toLowerCase();
+    const mine = this.plots.filter(p => p.isClaimed && p.nftState?.stage !== 'pending' && (p.owner || '').replace(/^@/, '').toLowerCase() === clean);
+    if (!mine.length) throw new Error('No confirmed deeds owned yet');
+    let total = 0; const plotAccruals = [];
+    mine.forEach(p => {
+      const st = p.building?.stats;
+      const acc = Number(st?.accruedIncome) || 0;
+      if (acc > 0.0001) {
+        const mult = p.building?.variableYield ? (this.rollD6() + this.rollD6()) / 7 : 1;
+        const payout = +(acc * mult).toFixed(4);
+        total += payout;
+        plotAccruals.push({ plotId: p.id, accrued: acc, payout, totalBefore: Number(st.totalIncomeCollected) || 0 });
+      }
+    });
+    const amount = +total.toFixed(4);
+    if (!(amount > 0.0001)) throw new Error('No income accrued yet across your deeds');
+    const collectedIds = plotAccruals.map(item => item.plotId);
+    const job = this._enqueueNumTransfer({
+      type: 'income',
+      from: TREASURY,
+      to: clean,
+      amount,
+      description: 'Collect ' + amount.toLocaleString() + ' NUM across ' + collectedIds.length + ' deeds',
+      snapshot: { username: clean, amount, plotIds: collectedIds, plotAccruals },
+      meta: { count: collectedIds.length, plotIds: collectedIds }
+    });
+    for (const saved of plotAccruals) {
+      const plot = this.getPlotById(saved.plotId);
+      if (plot?.building?.stats) plot.building.stats.accruedIncome = 0;
+    }
+    chainLedger.addPending(clean, amount);
+    this.scheduleSave();
+    return { amount, count: collectedIds.length, plotIds: collectedIds, pending: true, job: mintQueue.publicJob(job), walletBalance: chainLedger.getBalance(clean).available, message: 'Collecting ' + amount.toLocaleString() + ' NUM across ' + collectedIds.length + ' deeds in 1 transaction' };
+  }
+
   upgradePlot(plotId, username = "danie") {
     const plot = this.getPlotById(plotId);
     if (!plot || !plot.isClaimed) throw new Error("Plot is not claimed yet");
+    if (mintQueue.getJobForPlot(plotId)) throw new Error("A transaction for this plot is already confirming");
     if (plot.nftState?.stage === 'pending') throw new Error("This deed is still confirming");
-    if ((plot.owner || '').toLowerCase() !== (username || '').toLowerCase()) {
+    if ((plot.owner || '').replace(/^@/, '').toLowerCase() !== (username || '').replace(/^@/, '').toLowerCase()) {
       throw new Error("Only the deed owner can upgrade this property");
     }
     if (plot.building?.type === 'town_hall' || plot.building?.category === 'institution') {
@@ -615,6 +1187,7 @@ class GameStore {
     chainLedger.lock(clean, cost);
     building.level += 1;
     building.incomePerHour = incomePerHourFor(building.baseIncomePerHour, building.level);
+    if (plot.structures?.[0]?.type === 'peasant_lodge') plot.structures[0].level = building.level;
 
     const job = mintQueue.enqueue({
       type: 'upgrade',
@@ -630,7 +1203,7 @@ class GameStore {
           key: 'payment',
           label: `Pay ${cost.toLocaleString()} NUM upgrade`,
           operation: {
-          accountIndex: userManager.getUser(username)?.receiveAddress?.accountIndex || 0,
+          accountIndex: 0,
           kind: 'transfer',
             assetId: NUM_ASSET_ID,
             assetType: CURRENCY_ASSET_TYPE,
@@ -693,7 +1266,7 @@ class GameStore {
     const payer = String(username || '').toLowerCase();
     const recipient = owner && owner.username !== payer ? owner.username : TREASURY;
     const coin = {
-      id: `NUM-${metal.toUpperCase()}-${String(this.mintLedger.length + 1).padStart(6, '0')}`,
+      id: `NUM-${metal.toUpperCase()}-${randomUUID().slice(0, 8)}`,
       metal,
       weightGrams: weight,
       purity: purityValue,
@@ -715,7 +1288,7 @@ class GameStore {
     return { pending: true, coin, job: mintQueue.publicJob(job) };
   }
 
-    listPlotForSale(plotId, username, priceNum) { const plot = this.getPlotById(plotId); if (!plot || !plot.isClaimed) throw new Error("Plot is not claimed"); const seller = String(username || "").toLowerCase(); if (plot.owner.toLowerCase() !== seller) throw new Error("Only the owner can list this plot"); const price = Number(priceNum); if (!price || price < 1) throw new Error("Price must be at least 1 NUM"); plot.marketListing = { priceNum: +price.toFixed(4), seller, listedAt: new Date().toISOString() }; this._save(); return plot; } buyListedPlot(plotId, buyerUsername) { const plot = this.getPlotById(plotId); if (!plot || !plot.marketListing) throw new Error("Plot is not listed for sale"); const buyer = String(buyerUsername || "").toLowerCase(); const seller = String(plot.owner || "").toLowerCase(); if (!buyer || buyer === seller) throw new Error("Cannot buy your own plot"); const gross = Number(plot.marketListing.priceNum); const taxRate = Number(CONFIG.ECONOMY.SECONDARY_MARKET_TAX_RATE || 0.05); const taxAmount = +(gross * taxRate).toFixed(4); const sellerProceeds = +(gross - taxAmount).toFixed(4); const sellerJob = this._enqueueNumTransfer({ type: "plot_sale", from: buyer, to: seller, amount: sellerProceeds, description: "Plot sale (95%) - " + plot.label }); const taxJob = taxAmount > 0 ? this._enqueueNumTransfer({ type: "plot_market_tax", from: buyer, to: TREASURY, amount: taxAmount, description: "5% Secondary Market Vault Tax - " + plot.label }) : null; plot.owner = buyer; plot.marketListing = null; this._save(); return { plot, gross, taxAmount, sellerProceeds, sellerJob: mintQueue.publicJob(sellerJob), taxJob: taxJob ? mintQueue.publicJob(taxJob) : null }; } mintPreDecimalAssortment({ amountNum, mintPlotId, username }) { const payer = String(username || "").toLowerCase(); if (!payer) throw new Error("Sign in required"); const amount = Number(amountNum); if (!amount || amount < 0.05 || amount > 10000) throw new Error("Enter 0.05 to 10,000 NUM (1 NUM = 1 Pre-Decimal Pound = 20s)"); const mint = mintPlotId ? this.getPlotById(mintPlotId) : null; const COINS = [{ key: "gold_guinea", name: "Gold Guinea (21s)", farthings: 1008, weightG: 7.988, metal: "gold", purity: 0.9167, w: 8 }, { key: "gold_sovereign", name: "Gold Sovereign (20s)", farthings: 960, weightG: 7.988, metal: "gold", purity: 0.9167, w: 24 }, { key: "gold_half_sovereign", name: "Gold Half Sovereign (10s)", farthings: 480, weightG: 3.994, metal: "gold", purity: 0.9167, w: 18 }, { key: "silver_crown", name: "Silver Crown (5s)", farthings: 240, weightG: 28.28, metal: "silver", purity: 0.925, w: 12 }, { key: "silver_half_crown", name: "Silver Half Crown (2s 6d)", farthings: 120, weightG: 14.14, metal: "silver", purity: 0.925, w: 14 }, { key: "silver_florin", name: "Silver Florin (2s)", farthings: 96, weightG: 11.31, metal: "silver", purity: 0.925, w: 12 }, { key: "silver_shilling", name: "Silver Shilling (1s)", farthings: 48, weightG: 5.66, metal: "silver", purity: 0.925, w: 12 }, { key: "silver_sixpence", name: "Silver Sixpence (6d)", farthings: 24, weightG: 2.83, metal: "silver", purity: 0.925, w: 10 }, { key: "silver_threepence", name: "Silver Threepence (3d)", farthings: 12, weightG: 1.41, metal: "silver", purity: 0.925, w: 8 }, { key: "bronze_penny", name: "Bronze Penny (1d)", farthings: 4, weightG: 9.45, metal: "bronze", purity: 0.95, w: 4 }, { key: "bronze_halfpenny", name: "Bronze Halfpenny (1/2d)", farthings: 2, weightG: 5.67, metal: "bronze", purity: 0.95, w: 2 }, { key: "bronze_farthing", name: "Bronze Farthing (1/4d)", farthings: 1, weightG: 2.83, metal: "bronze", purity: 0.95, w: 1 }]; let rem = Math.round(amount * 960); const counts = new Map(); while (rem > 0) { const ok = COINS.filter(c => c.farthings <= rem); const tw = ok.reduce((s, c) => s + c.w, 0); let r = Math.random() * tw, acc = 0, pick = ok.at(0); for (const c of ok) { acc += c.w; if (r <= acc) { pick = c; break; } } rem -= pick.farthings; counts.set(pick.key, (counts.get(pick.key) || 0) + 1); } const assortment = COINS.filter(c => counts.has(c.key)).map(c => { const count = counts.get(c.key); return { key: c.key, name: c.name, count, metal: c.metal, purity: c.purity, weightGrams: +(c.weightG * count).toFixed(3), valueNum: +((c.farthings * count) / 960).toFixed(6) }; }); const ERAS = [{ rarity: "Common", badge: "common", mult: 1, w: 60, picks: [{ year: 1918, ruler: "George V" }, { year: 1915, ruler: "George V" }, { year: 1911, ruler: "George V (Coronation)" }, { year: 1907, ruler: "Edward VII" }, { year: 1899, ruler: "Victoria (Veiled Head)" }] }, { rarity: "Uncommon", badge: "uncommon", mult: 1.5, w: 24, picks: [{ year: 1887, ruler: "Victoria (Golden Jubilee)" }, { year: 1872, ruler: "Victoria (Young Head)" }, { year: 1853, ruler: "Victoria (Young Head)" }] }, { rarity: "Rare", badge: "rare", mult: 3, w: 11, picks: [{ year: 1831, ruler: "William IV" }, { year: 1826, ruler: "George IV" }, { year: 1821, ruler: "George IV (Laureate)" }] }, { rarity: "Ultra Rare", badge: "ultra_rare", mult: 7, w: 4, picks: [{ year: 1817, ruler: "George III (Bull Head)" }, { year: 1797, ruler: "George III (Soho Mint)" }, { year: 1787, ruler: "George III (Spade)" }] }, { rarity: "Mythic", badge: "mythic", mult: 20, w: 1, picks: [{ year: 1703, ruler: "Queen Anne (VIGO)" }, { year: 1694, ruler: "William & Mary" }, { year: 1663, ruler: "Charles II (First Milled)" }] }]; const mintedCoins = []; let seq = this.mintLedger.length * 100 + 1; for (const item of assortment) { for (let k = 0; k < item.count; k++) { const pk = deriveDeterministicCoinEra(payer + ":" + Date.now(), seq); const era = pk; mintedCoins.push({ serial: "COIN-" + pk.year + "-" + String(seq++).padStart(6, "0"), name: item.name, year: pk.year, ruler: pk.ruler, rarity: era.rarity, badge: era.badge, collectorMult: era.mult, metal: item.metal, purity: item.purity, weightGrams: +(item.weightGrams / item.count).toFixed(3), faceValueNum: +(item.valueNum / item.count).toFixed(6), owner: payer }); } } const batch = { id: "PRE-1920-" + String(this.mintLedger.length + 1).padStart(6, "0"), era: "Pre-1920 British Pre-Decimal (1 NUM = 20s)", amountNum: +((Math.round(amount * 960)) / 960).toFixed(6), mintPlotId: mint?.id || "ROYAL_MINT_LONDON", mintLabel: mint?.label || "Royal Mint (Pre-1920 Standard)", mintedBy: payer, assortment, coins: mintedCoins, createdAt: new Date().toISOString() }; const mintOwner = mint && mint.isClaimed && mint.owner && String(mint.owner).toLowerCase() !== payer ? String(mint.owner).toLowerCase() : null; const ownerCut = mintOwner ? +(batch.amountNum * 0.10).toFixed(4) : 0; const vaultCut = +(batch.amountNum - ownerCut).toFixed(4); if (ownerCut > 0) this._enqueueNumTransfer({ type: "mint_commission", from: payer, to: mintOwner, amount: ownerCut, description: "10% Royal Mint Commission - " + batch.id }); const job = this._enqueueNumTransfer({ type: "predecimal_mint", from: payer, to: TREASURY, amount: vaultCut, description: "Pre-1920 Mint - " + batch.amountNum + " NUM", snapshot: { coin: batch } }); this.mintLedger.unshift(batch); this.scheduleSave(); return { pending: true, batch, assortment, coins: mintedCoins, job: mintQueue.publicJob(job) }; }
+    listPlotForSale(plotId, username, priceNum) { const plot = this.getPlotById(plotId); if (!plot || !plot.isClaimed) throw new Error("Plot is not claimed"); const seller = String(username || "").toLowerCase(); if (plot.owner.toLowerCase() !== seller) throw new Error("Only the owner can list this plot"); const price = Number(priceNum); if (!price || price < 1) throw new Error("Price must be at least 1 NUM"); plot.marketListing = { priceNum: +price.toFixed(4), seller, listedAt: new Date().toISOString() }; this.scheduleSave(); return plot; } buyListedPlot(plotId, buyerUsername) { const plot = this.getPlotById(plotId); if (!plot || !plot.marketListing) throw new Error("Plot is not listed for sale"); const buyer = String(buyerUsername || "").toLowerCase(); const seller = String(plot.owner || "").toLowerCase(); if (!buyer || buyer === seller) throw new Error("Cannot buy your own plot"); const gross = Number(plot.marketListing.priceNum); const taxRate = Number(CONFIG.ECONOMY.SECONDARY_MARKET_TAX_RATE || 0.05); const taxAmount = +(gross * taxRate).toFixed(4); const sellerProceeds = +(gross - taxAmount).toFixed(4); const sellerJob = this._enqueueNumTransfer({ type: "plot_sale", from: buyer, to: seller, amount: sellerProceeds, description: "Plot sale (95%) - " + plot.label }); const taxJob = taxAmount > 0 ? this._enqueueNumTransfer({ type: "plot_market_tax", from: buyer, to: TREASURY, amount: taxAmount, description: "5% Secondary Market Vault Tax - " + plot.label }) : null; plot.owner = buyer; plot.marketListing = null; this.scheduleSave(); return { plot, gross, taxAmount, sellerProceeds, sellerJob: mintQueue.publicJob(sellerJob), taxJob: taxJob ? mintQueue.publicJob(taxJob) : null }; } mintPreDecimalAssortment({ amountNum, mintPlotId, username }) { const payer = String(username || "").toLowerCase(); if (!payer) throw new Error("Sign in required"); const amount = Number(amountNum); if (!amount || amount < 0.05 || amount > 10000) throw new Error("Enter 0.05 to 10,000 NUM (1 NUM = 1 Pre-Decimal Pound = 20s)"); const mint = mintPlotId ? this.getPlotById(mintPlotId) : null; const COINS = [{ key: "gold_guinea", name: "Gold Guinea (21s)", farthings: 1008, weightG: 7.988, metal: "gold", purity: 0.9167, w: 8 }, { key: "gold_sovereign", name: "Gold Sovereign (20s)", farthings: 960, weightG: 7.988, metal: "gold", purity: 0.9167, w: 24 }, { key: "gold_half_sovereign", name: "Gold Half Sovereign (10s)", farthings: 480, weightG: 3.994, metal: "gold", purity: 0.9167, w: 18 }, { key: "silver_crown", name: "Silver Crown (5s)", farthings: 240, weightG: 28.28, metal: "silver", purity: 0.925, w: 12 }, { key: "silver_half_crown", name: "Silver Half Crown (2s 6d)", farthings: 120, weightG: 14.14, metal: "silver", purity: 0.925, w: 14 }, { key: "silver_florin", name: "Silver Florin (2s)", farthings: 96, weightG: 11.31, metal: "silver", purity: 0.925, w: 12 }, { key: "silver_shilling", name: "Silver Shilling (1s)", farthings: 48, weightG: 5.66, metal: "silver", purity: 0.925, w: 12 }, { key: "silver_sixpence", name: "Silver Sixpence (6d)", farthings: 24, weightG: 2.83, metal: "silver", purity: 0.925, w: 10 }, { key: "silver_threepence", name: "Silver Threepence (3d)", farthings: 12, weightG: 1.41, metal: "silver", purity: 0.925, w: 8 }, { key: "bronze_penny", name: "Bronze Penny (1d)", farthings: 4, weightG: 9.45, metal: "bronze", purity: 0.95, w: 4 }, { key: "bronze_halfpenny", name: "Bronze Halfpenny (1/2d)", farthings: 2, weightG: 5.67, metal: "bronze", purity: 0.95, w: 2 }, { key: "bronze_farthing", name: "Bronze Farthing (1/4d)", farthings: 1, weightG: 2.83, metal: "bronze", purity: 0.95, w: 1 }]; let rem = Math.round(amount * 960); const counts = new Map(); while (rem > 0) { const ok = COINS.filter(c => c.farthings <= rem); const tw = ok.reduce((s, c) => s + c.w, 0); let r = Math.random() * tw, acc = 0, pick = ok.at(0); for (const c of ok) { acc += c.w; if (r <= acc) { pick = c; break; } } rem -= pick.farthings; counts.set(pick.key, (counts.get(pick.key) || 0) + 1); } const assortment = COINS.filter(c => counts.has(c.key)).map(c => { const count = counts.get(c.key); return { key: c.key, name: c.name, count, metal: c.metal, purity: c.purity, weightGrams: +(c.weightG * count).toFixed(3), valueNum: +((c.farthings * count) / 960).toFixed(6) }; }); const ERAS = [{ rarity: "Common", badge: "common", mult: 1, w: 60, picks: [{ year: 1918, ruler: "George V" }, { year: 1915, ruler: "George V" }, { year: 1911, ruler: "George V (Coronation)" }, { year: 1907, ruler: "Edward VII" }, { year: 1899, ruler: "Victoria (Veiled Head)" }] }, { rarity: "Uncommon", badge: "uncommon", mult: 1.5, w: 24, picks: [{ year: 1887, ruler: "Victoria (Golden Jubilee)" }, { year: 1872, ruler: "Victoria (Young Head)" }, { year: 1853, ruler: "Victoria (Young Head)" }] }, { rarity: "Rare", badge: "rare", mult: 3, w: 11, picks: [{ year: 1831, ruler: "William IV" }, { year: 1826, ruler: "George IV" }, { year: 1821, ruler: "George IV (Laureate)" }] }, { rarity: "Ultra Rare", badge: "ultra_rare", mult: 7, w: 4, picks: [{ year: 1817, ruler: "George III (Bull Head)" }, { year: 1797, ruler: "George III (Soho Mint)" }, { year: 1787, ruler: "George III (Spade)" }] }, { rarity: "Mythic", badge: "mythic", mult: 20, w: 1, picks: [{ year: 1703, ruler: "Queen Anne (VIGO)" }, { year: 1694, ruler: "William & Mary" }, { year: 1663, ruler: "Charles II (First Milled)" }] }]; const mintedCoins = []; const batchId = "PRE-1920-" + randomUUID(); let seq = this.mintLedger.length * 100 + 1; for (const item of assortment) { for (let k = 0; k < item.count; k++) { const pk = deriveDeterministicCoinEra(payer + ":" + Date.now(), seq); const era = pk; mintedCoins.push({ serial: "COIN-" + pk.year + "-" + batchId.slice(-8) + "-" + String(seq++).padStart(6, "0"), name: item.name, year: pk.year, ruler: pk.ruler, rarity: era.rarity, badge: era.badge, collectorMult: era.mult, metal: item.metal, purity: item.purity, weightGrams: +(item.weightGrams / item.count).toFixed(3), faceValueNum: +(item.valueNum / item.count).toFixed(6), owner: payer }); } } const batch = { id: batchId, era: "Pre-1920 British Pre-Decimal (1 NUM = 20s)", amountNum: +((Math.round(amount * 960)) / 960).toFixed(6), mintPlotId: mint?.id || "ROYAL_MINT_LONDON", mintLabel: mint?.label || "Royal Mint (Pre-1920 Standard)", mintedBy: payer, assortment, coins: mintedCoins, createdAt: new Date().toISOString() }; const mintOwner = mint && mint.isClaimed && mint.owner && String(mint.owner).toLowerCase() !== payer ? String(mint.owner).toLowerCase() : null; const ownerCut = mintOwner ? +(batch.amountNum * 0.10).toFixed(4) : 0; const vaultCut = +(batch.amountNum - ownerCut).toFixed(4); if (ownerCut > 0) this._enqueueNumTransfer({ type: "mint_commission", from: payer, to: mintOwner, amount: ownerCut, description: "10% Royal Mint Commission - " + batch.id }); const job = this._enqueueNumTransfer({ type: "predecimal_mint", from: payer, to: TREASURY, amount: vaultCut, description: "Pre-1920 Mint - " + batch.amountNum + " NUM", snapshot: { coin: batch } }); return { pending: true, batch, assortment, coins: mintedCoins, job: mintQueue.publicJob(job) }; }
   getMintLedger(limit = 100) {
     return this.mintLedger.slice(0, limit);
   }
@@ -807,7 +1380,7 @@ class GameStore {
           key: 'transfer',
           label: description,
           operation: {
-          accountIndex: userManager.getUser(from)?.receiveAddress?.accountIndex || 0,
+          accountIndex: 0,
           kind: 'transfer',
             assetId: NUM_ASSET_ID,
             assetType: CURRENCY_ASSET_TYPE,
@@ -845,7 +1418,7 @@ class GameStore {
         key: `register_${username}`,
         label: `Register @${username} on-chain`,
         operation: {
-          accountIndex: userManager.getUser(username)?.receiveAddress?.accountIndex || 0,
+          accountIndex: 0,
           kind: 'register_username',
           username,
           key: CONFIG.CHAIN.ISSUER_PUBLIC_KEY
@@ -967,7 +1540,7 @@ class GameStore {
       key: 'refund_previous_bid',
       label: `Refund ${refundAmount} NUM to @${previousBidder}`,
       operation: {
-          accountIndex: userManager.getUser(username)?.receiveAddress?.accountIndex || 0,
+          accountIndex: 0,
           kind: 'transfer',
         assetId: NUM_ASSET_ID,
         assetType: CURRENCY_ASSET_TYPE,
@@ -1146,8 +1719,55 @@ class GameStore {
   /* Job callbacks                                                      */
   /* ------------------------------------------------------------------ */
 
+  _applyBattleSettlement(job) {
+    const report = job.snapshot?.report;
+    if (!report || this.battleLog.some(b => b.battleId === report.battleId)) return;
+    const plot = this.getPlotById(report.plotId);
+    const armies = this.playerArmies[report.attacker] || [];
+    const army = armies.find(a => a.id === report.armyId);
+    if (!plot || !army) throw new Error('Battle target or army no longer exists; chain report confirmed but local settlement needs recovery');
+    plot.health = Math.max(0, report.plotHealthBefore - report.plotDamage);
+    const rosterByOwner = { [report.attacker]: this.playerSoldiers[report.attacker] || [], [report.defender]: this.playerSoldiers[report.defender] || [] };
+    for (const event of report.casualtyEvents || []) {
+      const owner = event.side === 'defender' ? report.defender : report.attacker;
+      const roster = rosterByOwner[owner] || [];
+      const soldier = roster.find(s => s.id === event.soldierId);
+      if (!soldier) continue;
+      soldier.hp = Math.max(0, soldier.hp - Number(event.damage || 0));
+      if (soldier.hp <= 0) {
+        roster.splice(roster.indexOf(soldier), 1);
+        for (const formation of (Array.isArray(this.playerArmies[owner]) ? this.playerArmies[owner] : [])) formation.soldierIds = formation.soldierIds.filter(id => id !== soldier.id);
+      }
+    }
+    if (plot.isCastle) plot.garrison = Math.max(0, Number(report.defenderState?.garrison || 0) - Number(report.garrisonDamage || 0));
+    const mint = job.steps.find(step => step.key === 'mint' && !step.compensation);
+    const result = { ...report, assetId: job.assetId, txHash: mint?.txHash || null, blockHeight: mint?.confirmedHeight || null, confirmations: job.requiredConfirmations, chainStatus: 'confirmed', casualties: (report.casualtyEvents || []).filter(e => e.killed).length };
+    this.battleLog.unshift(result); this.battleLog = this.battleLog.slice(0, 500);
+    army.pendingBattleId = null; army.locationPlotId = plot.id; army.originPlotId = null; army.startedAt = null; army.travelMs = null;
+    if (report.captured && army.soldierIds.length) {
+      plot.controller = report.attacker;
+      if (plot.isCastle) { plot.castleOwner = report.attacker; plot.garrison = Math.max(1, Math.floor(army.soldierIds.length / 2)); plot.building = { ...plot.building, name: `Castle Keep - ${plot.name}`, type: 'castle_keep', category: 'military', garrison: plot.garrison }; }
+      plot.health = Math.floor((plot.maxHealth || (plot.isCastle ? 1000 : 100)) * 0.35);
+      army.targetPlotId = null; army.route = []; army.status = 'idle'; army.arrivesAt = null; army.siegeTarget = false; plot.siege = null;
+    } else if (!army.soldierIds.length) {
+      army.targetPlotId = null; army.route = []; army.status = 'idle'; army.arrivesAt = null; army.siegeTarget = false; plot.siege = null;
+    } else {
+      army.status = 'besieging'; army.arrivesAt = new Date(Date.now() + 60000).toISOString();
+      plot.siege = { attacker: report.attacker, armyId: army.id, nextBattleAt: army.arrivesAt };
+    }
+    this.scheduleSave();
+  }
+
   _onJobConfirmed(job) {
-    if (job.gameApplied) return;
+    if (job.gameApplied && job.type !== 'battle_settlement') return;
+    if (job.type === 'battle_settlement' && this.battleLog.some(b => b.battleId === job.snapshot?.report?.battleId)) return;
+    if (this.seasonStartedAt && Date.parse(job.createdAt || 0) < Date.parse(this.seasonStartedAt)) {
+      // Retired-season transactions may settle on chain, but their old game
+      // effects do not carry into the current world.
+      job.gameApplied = true;
+      mintQueue._saveSoon();
+      return;
+    }
     job.gameApplied = true;
     this._recordRegistrations(job);
 
@@ -1155,6 +1775,11 @@ class GameStore {
     const found = key => job.steps.find(s => s.key === key && !s.compensation);
 
     try {
+      if (job.type === 'battle_settlement') {
+        this._applyBattleSettlement(job);
+        this.scheduleSave();
+        return;
+      }
       if (job.type === 'currency_mint') {
         const amount = Number(job.snapshot?.amount) || 0;
         const mintStep = found('mint');
@@ -1260,12 +1885,22 @@ class GameStore {
           });
         }
 
+        plot.isClaimed = true;
+        plot.owner = plot.isCastle ? (plot.castleOwner || TREASURY) : username;
+        plot.building = plot.building || job.snapshot?.building || this._claimBuilding(plot, amount);
+        if (job.snapshot?.resourceDeposits) {
+          plot.resourceSeed = job.snapshot.resourceSeed;
+          plot.resourceDeposits = job.snapshot.resourceDeposits;
+          plot.stockpile = job.snapshot.stockpile || plot.stockpile;
+        }
         plot.pendingJobId = null;
         plot.nftState = {
           stage: 'onchain',
           assetId: job.assetId,
           tokenId: job.assetId,
-          metadataHash: plot.nftState?.metadataHash || null,
+          metadataHash: job.snapshot?.metadataHash ||
+            plot.nftState?.metadataHash ||
+            metadataHash(deedMetadata({ ...plot, buildingType: plot.building?.type || null })),
           mintedAt: new Date().toISOString(),
           txHash: mint?.txHash || null,
           blockHeight: mint?.confirmedHeight || null,
@@ -1322,8 +1957,17 @@ class GameStore {
         if (job.type === 'income' && job.plotId) {
           const plot = this.getPlotById(job.plotId);
           if (plot?.building?.stats) {
-            plot.building.stats.totalIncomeCollected = +((job.snapshot?.totalBefore || 0) + amount).toFixed(4);
+            plot.building.stats.totalIncomeCollected = +((Number(plot.building.stats.totalIncomeCollected) || 0) + amount).toFixed(4);
             plot.building.stats.lastCollectedAt = new Date().toISOString();
+          }
+        }
+        if (job.type === 'income' && Array.isArray(job.snapshot?.plotAccruals)) {
+          const collectedAt = new Date().toISOString();
+          for (const saved of job.snapshot.plotAccruals) {
+            const plot = this.getPlotById(saved.plotId);
+            if (!plot?.building?.stats) continue;
+            plot.building.stats.totalIncomeCollected = +((Number(plot.building.stats.totalIncomeCollected) || 0) + Number(saved.payout || 0)).toFixed(4);
+            plot.building.stats.lastCollectedAt = collectedAt;
           }
         }
         if (job.type === 'town_hall' && job.plotId) {
@@ -1384,7 +2028,7 @@ class GameStore {
         return;
       }
 
-      if (['bank_deposit', 'bank_withdraw', 'auction_bid', 'stock_buy', 'stock_sell', 'mint_issue'].includes(job.type)) {
+      if (['bank_deposit', 'bank_withdraw', 'auction_bid', 'stock_buy', 'stock_sell', 'mint_issue', 'predecimal_mint', 'soldier_recruit', 'title_purchase'].includes(job.type)) {
         const amount = Number(job.snapshot?.amount) || 0;
         const from = job.snapshot?.from;
         const to = job.snapshot?.to;
@@ -1454,6 +2098,29 @@ class GameStore {
             this.mintLedger.unshift(coin);
             if (this.mintLedger.length > 500) this.mintLedger.pop();
           }
+        } else if (job.type === 'predecimal_mint') {
+          const coinBatch = job.snapshot?.coin;
+          if (coinBatch && !this.mintLedger.some(batch => batch.id === coinBatch.id)) {
+            this.mintLedger.unshift(coinBatch);
+            if (this.mintLedger.length > 500) this.mintLedger.pop();
+            const coinOwner = String(coinBatch.mintedBy || '').replace(/^@/, '').toLowerCase();
+            if (coinOwner) this.playerCoinPurses[coinOwner] = round(Number(this.playerCoinPurses[coinOwner] || 0) + Number(coinBatch.amountNum || 0), 6);
+          }
+        } else if (job.type === 'soldier_recruit') {
+          const recruitUser = String(job.snapshot?.username || from || '').toLowerCase();
+          const specs = { levy: { name: 'Levy Spearman', hp: 100, attack: 6, defense: 2, speed: 1 }, archer: { name: 'Bowman', hp: 75, attack: 8, defense: 1, speed: 1 }, cavalry: { name: 'Light Cavalry', hp: 130, attack: 12, defense: 5, speed: 2 } };
+          const spec = specs[job.snapshot?.unitType];
+          if (spec) {
+            const roster = this.playerSoldiers[recruitUser] || (this.playerSoldiers[recruitUser] = []);
+            this.playerArmies[recruitUser] ||= [];
+            for (let i = 0; i < Number(job.snapshot?.count || 0); i++) {
+              roster.push({ id: randomUUID(), name: `${spec.name} ${roster.length + 1}`, type: job.snapshot.unitType, hp: spec.hp, maxHp: spec.hp, attack: spec.attack, defense: spec.defense, speed: spec.speed, weapon: null, armor: null, homePlotId: this.plots.find(p => p.isClaimed && String(p.owner || '').replace(/^@/, '').toLowerCase() === recruitUser)?.id || this.plots.find(p => p.isCastle)?.id || null, armyId: null, wageRemainder: 0, recruitedAt: new Date().toISOString() });
+            }
+          }
+        } else if (job.type === 'title_purchase') {
+          const titleUsername = String(job.snapshot?.username || from || '').replace(/^@/, '').toLowerCase();
+          const title = job.snapshot?.title || String(job.meta?.name || '').match(/Royal (?:Peerage|Title):\s*(.+)$/i)?.[1];
+          if (titleUsername && title) this.playerTitles[titleUsername] = title;
         }
 
         this.scheduleSave();
@@ -1466,6 +2133,11 @@ class GameStore {
   }
 
   _onJobReverted(job) {
+    if (!job.gameApplied && this.seasonStartedAt && Date.parse(job.createdAt || 0) < Date.parse(this.seasonStartedAt)) {
+      job.gameApplied = true;
+      mintQueue._saveSoon();
+      return;
+    }
     if (job.type === 'deposit' || job.type === 'currency_mint' || job.type === 'treasury_block_reward') { chainLedger.dropPending(job.username, Number(job.snapshot?.amount) || 0); return; }
     if (job.gameApplied) return;
     job.gameApplied = true;
@@ -1477,6 +2149,16 @@ class GameStore {
     try {
       if (settlementUncertain) {
         console.error(`[ledger] Job ${job.id} has a failed on-chain compensation; reserved balances remain locked for reconciliation`);
+        return;
+      }
+
+      if (job.type === 'battle_settlement') {
+        const armies = this.playerArmies[username] || [];
+        const army = armies.find(a => a.id === job.snapshot?.report?.armyId);
+        if (army) { army.pendingBattleId = null; army.status = 'besieging'; army.arrivesAt = new Date(Date.now() + 60000).toISOString(); }
+        const plot = this.getPlotById(job.snapshot?.report?.plotId);
+        if (plot) plot.siege = army ? { attacker: username, armyId: army.id, nextBattleAt: army.arrivesAt } : null;
+        this.scheduleSave();
         return;
       }
 
@@ -1524,6 +2206,10 @@ class GameStore {
           plot.isClaimed = false;
           plot.owner = null;
           plot.building = null;
+          plot.resourceSeed = plot.id;
+          plot.resourceDeposits = generateResourceDeposits(plot.id, plot.rarity);
+          plot.stockpile = { wood: 24, iron: 6, tin: 0, copper: 0, silver: 0, gold: 0 };
+          plot.structures = [];
           plot.pendingJobId = null;
           plot.nftState = {
             stage: 'failed',
@@ -1557,10 +2243,18 @@ class GameStore {
         const amount = Number(job.snapshot?.amount) || 0;
         chainLedger.unlock(TREASURY, amount);
         chainLedger.dropPending(job.snapshot?.username || job.snapshot?.to || username, amount);
+        if (Array.isArray(job.snapshot?.plotAccruals)) {
+          for (const saved of job.snapshot.plotAccruals) {
+            const savedPlot = this.getPlotById(saved.plotId);
+            const stats = savedPlot?.building?.stats;
+            if (!stats) continue;
+            // Preserve income earned while the payout was confirming.
+            stats.accruedIncome = +(Number(stats.accruedIncome || 0) + Number(saved.accrued || 0)).toFixed(6);
+          }
+        }
         const plot = this.getPlotById(job.plotId);
-        if (plot?.building?.stats && job.snapshot) {
-          plot.building.stats.accruedIncome = +Number(job.snapshot.accrued || 0).toFixed(6);
-          plot.building.stats.totalIncomeCollected = job.snapshot.totalBefore || 0;
+        if (!Array.isArray(job.snapshot?.plotAccruals) && plot?.building?.stats && job.snapshot) {
+          plot.building.stats.accruedIncome = +(Number(plot.building.stats.accruedIncome || 0) + Number(job.snapshot.accrued || 0)).toFixed(6);
         }
         chainLedger.recordChainMove({
           username,
@@ -1581,6 +2275,7 @@ class GameStore {
         if (plot?.building && job.snapshot) {
           plot.building.level = job.snapshot.levelBefore;
           plot.building.incomePerHour = job.snapshot.incomeBefore;
+          if (plot.structures?.[0]) plot.structures[0].level = job.snapshot.levelBefore;
         }
         chainLedger.recordChainMove({
           username,
@@ -1590,6 +2285,18 @@ class GameStore {
           jobId: job.id,
           plotId: job.plotId
         });
+        this.scheduleSave();
+        return;
+      }
+
+      if (job.type === 'soldier_recruit') {
+        chainLedger.unlock(username, Number(job.snapshot?.cost || job.snapshot?.amount) || 0);
+        this.scheduleSave();
+        return;
+      }
+
+      if (job.type === 'title_purchase') {
+        chainLedger.unlock(username, Number(job.snapshot?.amount) || Number(job.snapshot?.price) || 0);
         this.scheduleSave();
         return;
       }
@@ -1639,7 +2346,7 @@ class GameStore {
         return;
       }
 
-      if (['bank_deposit', 'bank_withdraw', 'stock_buy', 'stock_sell', 'mint_issue'].includes(job.type)) {
+      if (['bank_deposit', 'bank_withdraw', 'stock_buy', 'stock_sell', 'mint_issue', 'predecimal_mint'].includes(job.type)) {
         chainLedger.unlock(job.snapshot?.from, Number(job.snapshot?.amount) || 0);
         this.scheduleSave();
         return;

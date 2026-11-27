@@ -1,0 +1,34 @@
+{
+  "assetId": "dd889f998c9626d8e46f22801ef0efdb44c0e2f2ba39ac922c29873d127e0436",
+  "metadataHash": "84da64159fa9affb3c144f0a5c18fb260808121dccf94b0ee42f36371260e33f",
+  "metadata": {
+    "app": "townforge-numista",
+    "schema": "townforge.numista.deed/v1",
+    "gridVersion": "uk-numista-2026-11-v2",
+    "gridSeed": 20261119,
+    "plotId": "UK-1280",
+    "name": "Heatherridge Rise",
+    "label": "AD-26",
+    "region": "Midlands",
+    "coords": [
+      53.215,
+      -1.493831
+    ],
+    "bounds": [
+      [
+        53.15,
+        -1.605627
+      ],
+      [
+        53.28,
+        -1.382034
+      ]
+    ],
+    "rarity": 1,
+    "rarityKey": "common",
+    "rarityName": "Common",
+    "price": 50,
+    "buildingType": "water_works",
+    "image": "https://townforge.local/deeds/UK-1280.png"
+  }
+}

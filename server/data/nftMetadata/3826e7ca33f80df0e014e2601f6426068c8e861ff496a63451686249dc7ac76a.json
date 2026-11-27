@@ -1,0 +1,34 @@
+{
+  "assetId": "3826e7ca33f80df0e014e2601f6426068c8e861ff496a63451686249dc7ac76a",
+  "metadataHash": "b50c8f384bc766d5be3e521f5b76ebfe81fc33b8392c0a8a4eb2adf29c138c4a",
+  "metadata": {
+    "app": "townforge-numista",
+    "schema": "townforge.numista.deed/v1",
+    "gridVersion": "uk-numista-2026-11-v2",
+    "gridSeed": 20261119,
+    "plotId": "UK-1132",
+    "name": "Ashfield Wharf",
+    "label": "AF-23",
+    "region": "Midlands",
+    "coords": [
+      52.825,
+      -1.046645
+    ],
+    "bounds": [
+      [
+        52.76,
+        -1.158441
+      ],
+      [
+        52.89,
+        -0.934848
+      ]
+    ],
+    "rarity": 1,
+    "rarityKey": "common",
+    "rarityName": "Common",
+    "price": 50,
+    "buildingType": "water_works",
+    "image": "https://townforge.local/deeds/UK-1132.png"
+  }
+}

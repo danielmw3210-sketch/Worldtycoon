@@ -625,8 +625,15 @@ class ChainAdapter {
 
     let params;
     if (op.kind === 'create_asset') {
-      const existingAsset = await numistaRpc.getAsset(op.assetId).catch(() => null);
-      if (existingAsset?.found) return { txHash: existingAsset.tx_hash || 'existing-on-chain', confirmed: true };
+      const existingAsset = await this.getAsset(op.assetId).catch(() => null);
+      if (existingAsset) {
+        return {
+          skip: true,
+          txHash: null,
+          acceptedAtHeight: await this.getHeight(),
+          reason: 'asset already exists on-chain'
+        };
+      }
       params = {
         ...base,
         action: 'create_asset',
@@ -636,6 +643,19 @@ class ChainAdapter {
         metadata_hash: op.metadataHash
       };
     } else if (op.kind === 'mint') {
+      // A collectible is unique. If the recipient already holds it, a previous
+      // attempt was mined but the queue did not record the confirmation.
+      if (op.assetType === 'collectible') {
+        const held = Number(await this.getAssetBalance(op.assetId, op.recipient).catch(() => 0));
+        if (held >= Number(op.amountUnits)) {
+          return {
+            skip: true,
+            txHash: null,
+            acceptedAtHeight: await this.getHeight(),
+            reason: 'collectible already minted to recipient'
+          };
+        }
+      }
       params = {
         ...base,
         action: 'mint',
@@ -655,6 +675,18 @@ class ChainAdapter {
         amount: Number(op.amountUnits)
       };
     } else if (op.kind === 'register_username') {
+      const existing = await this.getUsernameKey(op.username).catch(() => null);
+      if (existing) {
+        if (op.key && existing.key && String(existing.key).toLowerCase() !== String(op.key).toLowerCase()) {
+          throw new Error(`Username @${op.username} is already registered with a different on-chain key`);
+        }
+        return {
+          skip: true,
+          txHash: null,
+          acceptedAtHeight: await this.getHeight(),
+          reason: 'username already registered on-chain'
+        };
+      }
       params = {
         ...base,
         action: 'register_username',

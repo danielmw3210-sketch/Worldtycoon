@@ -1,0 +1,34 @@
+{
+  "assetId": "a8df51af9869d906a271b5aefb57002927a46f98a88e617d751b4bd327420964",
+  "metadataHash": "2e08a5fcb3b74da01896349ef1938febf7915459e8a201c3a33eaf0cf603fd93",
+  "metadata": {
+    "app": "townforge-numista",
+    "schema": "townforge.numista.deed/v1",
+    "gridVersion": "uk-numista-2026-11-v2",
+    "gridSeed": 20261119,
+    "plotId": "UK-1279",
+    "name": "Cindercroft Rise",
+    "label": "AC-26",
+    "region": "Midlands",
+    "coords": [
+      53.215,
+      -1.717424
+    ],
+    "bounds": [
+      [
+        53.15,
+        -1.829221
+      ],
+      [
+        53.28,
+        -1.605627
+      ]
+    ],
+    "rarity": 1,
+    "rarityKey": "common",
+    "rarityName": "Common",
+    "price": 50,
+    "buildingType": "peasant_lodge",
+    "image": "https://townforge.local/deeds/UK-1279.png"
+  }
+}

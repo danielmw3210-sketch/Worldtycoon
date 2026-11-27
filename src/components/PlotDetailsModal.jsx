@@ -75,16 +75,22 @@ export default function PlotDetailsModal() {
     collectIncome,
     upgradePlot,
     issueMint,
+    refreshPlots,
+    setSelectedPlot,
     wallet,
     network,
     user,
-    addToast
+    addToast,
+    watchJob
   } = useGame();
 
   const [claiming, setClaiming] = useState(false);
   const [collecting, setCollecting] = useState(false);
   const [upgrading, setUpgrading] = useState(false);
   const [claimingTaxes, setClaimingTaxes] = useState(false);
+  const [buildingStructure, setBuildingStructure] = useState('');
+  const [repairing, setRepairing] = useState(false);
+  const [fortifying, setFortifying] = useState(false);
 
   const [mintWeight, setMintWeight] = useState('10');
   const [mintPurity, setMintPurity] = useState('0.999');
@@ -112,7 +118,7 @@ export default function PlotDetailsModal() {
         const res = await fetch(`/api/jobs/${activeJobId}`);
         if (!res.ok) return;
         const data = await res.json();
-        if (alive) setJobInfo(data.job || null);
+        if (alive) /* autoRefreshOnDone */ if (!data.job && nft.stage === 'pending' && typeof onRefreshPlot === 'function') onRefreshPlot(plot.id); setJobInfo(data.job || null);
       } catch { /* keep the last known progress */ }
     };
     tick();
@@ -123,7 +129,7 @@ export default function PlotDetailsModal() {
   if (!selectedPlot) return null;
 
   const rarityColor = RARITY_COLORS[selectedPlot.rarityKey] || '#94a3b8';
-  const isOwner = !!user?.username && selectedPlot.owner?.toLowerCase() === `@${user.username.toLowerCase()}`;
+  const isOwner = !!user?.username && [selectedPlot.owner, selectedPlot.controller].some(name => String(name || '').replace(/^@/, '').toLowerCase() === user.username.toLowerCase());
   const accrued = Number(building?.stats?.accruedIncome) || 0;
   const maxLevel = 5;
   const upgradeCost = selectedPlot.price * 0.4 * (building?.level || 1);
@@ -192,6 +198,70 @@ export default function PlotDetailsModal() {
     }
   };
 
+  const handlePredecimalMint = async (event) => {
+    event.preventDefault();
+    if (minting) return;
+    setMinting(true);
+    try {
+      const amountNum = Number(event.currentTarget.amt.value || 1);
+      const response = await fetch('/api/mint/predecimal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(user?.token ? { Authorization: `Bearer ${user.token}` } : {}) },
+        body: JSON.stringify({ amountNum, mintPlotId: selectedPlot?.id })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Mint failed');
+      addToast('Coin strike submitted. The collection updates after chain confirmation.', 'info');
+      const job = await watchJob(data.job?.id);
+      if (job?.status === 'confirmed') addToast('Coin strike confirmed. Your coins are in the Coin Vault.', 'success');
+      await refreshPlots();
+    } catch (error) {
+      addToast(error.message || 'Mint failed', 'error');
+    } finally {
+      setMinting(false);
+    }
+  };
+
+  const handleBuildStructure = async (structureType) => {
+    setBuildingStructure(structureType);
+    try {
+      const response = await fetch(`/api/plots/${selectedPlot.id}/build`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user?.token || ''}` },
+        body: JSON.stringify({ structureType })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Construction failed');
+      setSelectedPlot(data.plot);
+      await refreshPlots();
+      addToast(`${data.plot.structures.at(-1).name} built`, 'success');
+    } catch (err) {
+      addToast(err.message, 'error');
+    } finally {
+      setBuildingStructure('');
+    }
+  };
+
+  const handleRepair = async () => {
+    setRepairing(true);
+    try {
+      const response = await fetch(`/api/plots/${encodeURIComponent(selectedPlot.id)}/repair`, { method: 'POST', headers: { Authorization: `Bearer ${user?.token || ''}` } });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Repair failed');
+      setSelectedPlot(data.plot); await refreshPlots(); addToast('Plot repaired using settlement resources.', 'success');
+    } catch (err) { addToast(err.message, 'error'); } finally { setRepairing(false); }
+  };
+
+  const handleFortify = async () => {
+    setFortifying(true);
+    try {
+      const response = await fetch(`/api/plots/${encodeURIComponent(selectedPlot.id)}/fortify`, { method: 'POST', headers: { Authorization: `Bearer ${user?.token || ''}` } });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Fortification failed');
+      setSelectedPlot(data.plot); await refreshPlots(); addToast('Fortifications strengthened.', 'success');
+    } catch (err) { addToast(err.message, 'error'); } finally { setFortifying(false); }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn">
       <div className="bg-[#161d2a] border border-slate-700 w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
@@ -228,6 +298,7 @@ export default function PlotDetailsModal() {
 
         {/* Content */}
         <div className="p-6 overflow-y-auto space-y-6">
+          {selectedPlot.health != null && <div className="p-3 rounded-xl bg-slate-900 border border-slate-800"><div className="flex justify-between text-xs"><span className="text-slate-300">{selectedPlot.isCastle ? 'Castle integrity' : 'Plot health'} · Fortification {selectedPlot.fortificationLevel || 0}/5</span><b>{selectedPlot.health}/{selectedPlot.maxHealth || (selectedPlot.isCastle ? 1000 : 100)}</b></div><div className="h-2 mt-2 rounded bg-slate-800"><div className="h-full rounded bg-emerald-500" style={{ width: `${Math.max(0, Math.min(100, 100 * selectedPlot.health / (selectedPlot.maxHealth || 100)))}%` }} /></div>{selectedPlot.siege && <p className="mt-2 text-[10px] text-red-300">Under siege by @{selectedPlot.siege.attacker}</p>}{isOwner && <div className="mt-2 flex flex-wrap gap-2">{selectedPlot.health < selectedPlot.maxHealth && <button disabled={repairing} onClick={handleRepair} className="px-3 py-1.5 rounded bg-slate-800 text-[10px] disabled:opacity-40">{repairing ? 'Repairing…' : 'Repair · 10 wood + 2 iron'}</button>}{Number(selectedPlot.fortificationLevel||0)<5&&<button disabled={fortifying} onClick={handleFortify} className="px-3 py-1.5 rounded bg-slate-800 text-[10px] disabled:opacity-40">{fortifying?'Fortifying…':`Fortify · ${20*(Number(selectedPlot.fortificationLevel||0)+1)} wood + ${5*(Number(selectedPlot.fortificationLevel||0)+1)} iron`}</button>}</div>}</div>}
 
           {/* Unclaimed plot */}
           {!selectedPlot.isClaimed && (
@@ -237,9 +308,7 @@ export default function PlotDetailsModal() {
                 <div>
                   <h4 className="font-bold text-white text-sm">Survey & Claim This {selectedPlot.rarityName} Plot</h4>
                   <p className="text-xs text-slate-300 mt-1 leading-relaxed">
-                    Claiming registers the deed to <strong>@{user?.username || 'you'}</strong>, rolls a
-                    random income property from the {selectedPlot.rarityName} pool, and starts
-                    accruing rental income in NUM until you collect it.
+                    Claiming registers the deed to <strong>@{user?.username || 'you'}</strong>, gives you a Peasant Lodge and this plot’s resource deposits, and starts a small NUM income stream.
                   </p>
                 </div>
               </div>
@@ -253,7 +322,7 @@ export default function PlotDetailsModal() {
                 <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800 text-center">
                   <span className="text-[10px] text-slate-400 block uppercase font-mono">Est. Income</span>
                   <span className="text-lg font-black font-mono text-emerald-400">
-                    {formatIncome(selectedPlot.price / 240)}
+                    {formatIncome(selectedPlot.price / 1200)}
                   </span>
                   <span className="text-[10px] text-slate-500 block">NUM / hour</span>
                 </div>
@@ -269,18 +338,15 @@ export default function PlotDetailsModal() {
 
               <div className="p-4 rounded-xl bg-slate-900/70 border border-slate-800 space-y-2">
                 <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 font-mono">
-                  Possible buildings from this rarity
+                  This plot starts with a Peasant Lodge
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {(RARITY_POOLS[selectedPlot.rarityKey] || RARITY_POOLS.common).map(name => (
-                    <span key={name} className="px-2.5 py-1 rounded-lg bg-slate-800/70 border border-slate-700 text-xs text-slate-200">
-                      {name}
-                    </span>
+                  {Object.entries(selectedPlot.resourceDeposits || {}).filter(([, amount]) => Number(amount) > 0).map(([resource, amount]) => (
+                    <span key={resource} className="px-2.5 py-1 rounded-lg bg-slate-800/70 border border-slate-700 text-xs text-slate-200 capitalize">{resource} deposit · {Number(amount).toLocaleString()}</span>
                   ))}
                 </div>
                 <p className="text-[11px] text-slate-500 font-mono pt-1">
-                  Higher rarity = higher price AND proportionally higher income. Utilities also roll
-                  a 2d6 multiplier when collected.
+                  The lodge earns a small income. Deposits are randomized when you buy the plot; build mines and workshops to develop them.
                 </p>
               </div>
 
@@ -377,6 +443,27 @@ export default function PlotDetailsModal() {
                       <span>Collected all-time: {formatIncome(building.stats?.totalIncomeCollected)} NUM</span>
                     </div>
                   </>
+                )}
+
+                {building.type === 'peasant_lodge' && (
+                  <div className="mt-4 p-4 rounded-xl bg-emerald-950/15 border border-emerald-500/25 space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div><h4 className="text-sm font-bold text-emerald-200">Settlement & Resources</h4><p className="text-[10px] text-slate-400">Lodge level {building.level} · {Math.max(0, Number(building.level || 1) - (selectedPlot.structures || []).length)} open building slot(s)</p></div>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {Object.entries(selectedPlot.stockpile || {}).map(([resource, amount]) => <span key={resource} className="px-2 py-1 rounded bg-slate-950/70 border border-slate-800 text-[10px] text-slate-300 capitalize">{resource}: {Number(amount || 0).toFixed(1)}</span>)}
+                    </div>
+                    <div className="space-y-1">{(selectedPlot.structures || []).map((structure, index) => <div key={`${structure.type}-${index}`} className="text-xs text-slate-200">• {structure.name} {structure.resource ? <span className="text-emerald-300">· extracts {structure.resource} at {structure.outputPerHour}/h</span> : ''}</div>)}</div>
+                    {isOwner && <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      {Object.entries(selectedPlot.resourceDeposits || {}).filter(([, amount]) => Number(amount) > 0).map(([resource]) => {
+                        const type = resource === 'wood' ? 'woodcutter' : `${resource}_mine`;
+                        const names = { wood: 'Woodcutter Camp', iron: 'Iron Mine', tin: 'Tin Mine', copper: 'Copper Mine', silver: 'Silver Mine', gold: 'Gold Mine' };
+                        const builtCount = (selectedPlot.structures || []).filter(s => s.type !== 'peasant_lodge').length;
+                        return <button key={resource} disabled={buildingStructure === type || builtCount >= Number(building.level || 1)} onClick={() => handleBuildStructure(type)} className="p-2 rounded-lg border border-slate-700 bg-slate-950 hover:border-emerald-500/50 disabled:opacity-40 text-left"><div className="text-[11px] font-bold text-white">{buildingStructure === type ? 'Building…' : names[resource] || resource}</div><div className="text-[9px] text-slate-500">Uses {resource === 'gold' || resource === 'silver' ? 'wood + iron' : 'wood'}</div></button>;
+                      })}
+                    </div>}
+                    {(selectedPlot.structures || []).length >= Number(building.level || 1) && <p className="text-[10px] text-amber-300">Upgrade the lodge to unlock another building slot.</p>}
+                  </div>
                 )}
 
                 {/* Town hall treasury */}
@@ -571,7 +658,7 @@ export default function PlotDetailsModal() {
                 </div>
               )}
 
-              <div className="p-3.5 rounded-xl bg-amber-950/20 border border-amber-500/30 space-y-2"><div className="flex items-center justify-between"><span className="text-xs font-bold text-amber-300">Royal Mint · Pre-1920 Pre-Decimal (1 NUM = £1 / 20s)</span></div><p className="text-[11px] text-slate-400">Strike NUM into a weighted random assortment of pre-1920 British coins (Gold Guineas 21s, Sovereigns 20s, Half Sovereigns 10s, Crowns 5s, Half Crowns, Florins, Shillings, Sixpences & Threepences).</p><form onSubmit={async (e) => { e.preventDefault(); const amt = Number(e.target.amt.value || 1); const r = await fetch("/api/mint/predecimal", { method: "POST", headers: { "Content-Type": "application/json", ...(user?.token ? { Authorization: "Bearer " + user.token } : {}) }, body: JSON.stringify({ amountNum: amt, mintPlotId: selectedPlot?.id }) }); const d = await r.json(); if (!r.ok) { addToast(d.error || "Mint failed", "error"); } else { addToast("Minted: " + (d.assortment || []).map(c => c.count + "x " + c.name).join(", "), "success"); } }} className="flex gap-2"><input name="amt" type="number" step="0.05" min="0.05" defaultValue="1" className="w-28 px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs font-mono text-white" /><button type="submit" className="flex-1 py-1.5 px-3 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold">Strike Pre-1920 Coinage</button></form></div>
+              <div className="p-3.5 rounded-xl bg-amber-950/20 border border-amber-500/30 space-y-2"><div className="flex items-center justify-between"><span className="text-xs font-bold text-amber-300">Royal Mint · Pre-1920 Pre-Decimal (1 NUM = £1 / 20s)</span></div><p className="text-[11px] text-slate-400">Strike NUM into a weighted random assortment of pre-1920 British coins (Gold Guineas 21s, Sovereigns 20s, Half Sovereigns 10s, Crowns 5s, Half Crowns, Florins, Shillings, Sixpences & Threepences).</p><form onSubmit={handlePredecimalMint} className="flex gap-2"><input name="amt" type="number" step="0.05" min="0.05" defaultValue="1" className="w-28 px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs font-mono text-white" /><button type="submit" disabled={minting} className="flex-1 py-1.5 px-3 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white text-xs font-bold">{minting ? "Waiting for chain?" : "Strike Pre-1920 Coinage"}</button></form></div>
               {nft.stage === 'legacy_simulated' && (
                 <p className="text-[10px] text-slate-500 font-mono">
                   This early demo deed predates on-chain asset minting and is not a real chain NFT.

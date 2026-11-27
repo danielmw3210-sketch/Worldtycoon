@@ -24,10 +24,15 @@ export default function Navbar() {
     logout, 
     wallet, 
     network, 
-    setActiveModal, 
-    isMining, 
-    hashrate 
+    setActiveModal,
+    isMining,
+    hashrate,
+    plots,
+    refreshPlots,
+    refreshWallet,
+    addToast
   } = useGame();
+  const [collectingAll, setCollectingAll] = React.useState(false);
 
   return (
     <header className="sticky top-0 z-40 bg-[#0f141c]/95 backdrop-blur-md border-b border-[#222d3d] px-4 py-2.5 transition-all">
@@ -106,6 +111,41 @@ export default function Navbar() {
             <span className="hidden sm:inline">Explorer</span>
           </button>
 
+          {/* collectAllIncomeBtn */}
+          {user && (() => {
+            const myPlots = (plots || []).filter(p => p.isClaimed && p.nftState?.stage !== 'pending' && (p.owner || '').replace(/^@/, '').toLowerCase() === user.username.toLowerCase());
+            const totalAcc = myPlots.reduce((sum, p) => sum + (Number(p.building?.stats?.accruedIncome) || 0), 0);
+            return myPlots.length > 0 ? (
+              <button
+                disabled={collectingAll || totalAcc <= 0.0001}
+                onClick={async () => {
+                  if (collectingAll) return;
+                  setCollectingAll(true);
+                  try {
+                    const r = await fetch('/api/plots/collect-all-income', {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${user.token}`
+                      }
+                    });
+                    const d = await r.json();
+                    if (!r.ok) throw new Error(d.error || 'Collect failed');
+                    addToast(d.message || `Collecting ${Number(d.amount || 0).toFixed(4)} NUM`, 'success');
+                    await Promise.all([refreshPlots(), refreshWallet()]);
+                  } catch (e) {
+                    addToast(e.message || 'Collect failed', 'error');
+                  } finally {
+                    setCollectingAll(false);
+                  }
+                }}
+                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg font-bold text-xs sm:text-sm bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 disabled:opacity-50 disabled:cursor-not-allowed text-black shadow-md border border-amber-300/40 transition-all"
+              >
+                <span>{collectingAll ? 'Collecting…' : `Collect All (${totalAcc.toFixed(4)} NUM)`}</span>
+              </button>
+            ) : null;
+          })()}
+
           {/* Buy Crypto Button */}
           <button
             onClick={() => setActiveModal(user ? 'buy_crypto' : 'auth')}
@@ -145,7 +185,7 @@ export default function Navbar() {
           {/* Account & Deeds */}
           {user && (
             <button
-              onClick={() => setActiveModal('account')}
+              onClick={() => setActiveModal('deeds')}
               className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-[#161d2a] hover:bg-[#1e2738] border border-slate-800 text-slate-300 transition-colors"
               title="View your account and deeds"
             >
@@ -153,6 +193,11 @@ export default function Navbar() {
               <span>My Deeds</span>
             </button>
           )}
+          {user && <button onClick={() => setActiveModal('account')} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-[#161d2a] hover:bg-[#1e2738] border border-slate-800 text-slate-300 transition-colors" title="Account overview"><User className="w-3.5 h-3.5" /><span className="hidden lg:inline">Account</span></button>}
+          {user && <button onClick={() => setActiveModal('coins')} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-[#161d2a] hover:bg-[#1e2738] border border-yellow-800/50 text-yellow-200 transition-colors"><Coins className="w-3.5 h-3.5" /><span className="hidden sm:inline">Coin Vault</span></button>}
+          {user && <button onClick={() => setActiveModal('peerage')} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-[#161d2a] hover:bg-[#1e2738] border border-amber-800/50 text-amber-200 transition-colors"><Landmark className="w-3.5 h-3.5" /><span className="hidden sm:inline">Peerage</span></button>}
+          {user && <button onClick={() => setActiveModal('castles')} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-[#161d2a] hover:bg-[#1e2738] border border-red-800/50 text-red-200 transition-colors"><Building2 className="w-3.5 h-3.5" /><span className="hidden sm:inline">Castles</span></button>}
+          {user?.title && <button onClick={() => setActiveModal('army')} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-red-950/50 hover:bg-red-900/60 border border-red-700/50 text-red-200 transition-colors"><ShieldCheck className="w-3.5 h-3.5" /><span className="hidden sm:inline">Army</span></button>}
         </nav>
 
         {/* User Identity & Private Wallet */}
@@ -165,6 +210,7 @@ export default function Navbar() {
                 title="Click to view private wallet & transfer funds"
               >
                 <div className="text-xs text-orange-400 font-mono flex items-center justify-end space-x-1 font-bold">
+                  {user.title && <button type="button" onClick={() => setActiveModal('peerage')} className="text-amber-300 hover:text-amber-200">{user.title.split(' / ')[0]}</button>}
                   <span>Wallet · @{user.username}</span>
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
                 </div>

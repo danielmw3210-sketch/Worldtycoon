@@ -14,6 +14,12 @@ import BlockchainSyncModal from './components/BlockchainSyncModal';
 import BlockExplorerModal from './components/BlockExplorerModal';
 import AuthModal from './components/AuthModal';
 import AccountModal from './components/AccountModal';
+import DeedsModal from './components/DeedsModal';
+import PeerageModal from './components/PeerageModal';
+import CastlesModal from './components/CastlesModal';
+import CoinCollectionModal from './components/CoinCollectionModal';
+import ArmyModal from './components/ArmyModal';
+import SoldierModal from './components/SoldierModal';
 import TransactionToast from './components/TransactionToast';
 
 export default function App() {
@@ -60,6 +66,12 @@ export default function App() {
       {activeModal === 'sync_settings' && <BlockchainSyncModal />}
       {activeModal === 'explorer' && <BlockExplorerModal />}
       {activeModal === 'account' && <AccountModal />}
+      {activeModal === 'deeds' && <DeedsModal />}
+      {activeModal === 'peerage' && <PeerageModal />}
+      {activeModal === 'castles' && <CastlesModal />}
+      {activeModal === 'coins' && <CoinCollectionModal />}
+      {activeModal === 'army' && <ArmyModal />}
+      {activeModal === 'soldiers' && <SoldierModal />}
 
       {/* Real-time Toasts */}
       <TransactionToast />

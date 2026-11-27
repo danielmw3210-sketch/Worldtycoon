@@ -302,7 +302,16 @@ app.get('/api/auth/identity-receipt', (req, res) => {
   });
 });
 app.post("/api/auth/claim-username", async (req, res) => { try { const cur = requireSessionUser(req, res); if (!cur) return; const recv = await getOrCreateReceiveAddress(cur); const u = userManager.getUser(cur); const feeJob = gameStore._enqueueNumTransfer({ type: 'handle_mint', from: cur, to: 'crown_treasury', amount: 1, description: 'Mint Tradeable @Handle (1 NUM)' }); const claimed = await numistaRpc.claimOnChainUsername(recv.accountIndex, req.body?.username, u?.password || ""); chainLedger.enqueueUsernameRegistration(claimed, recv.address); if (!userManager.users.has(claimed)) userManager.register({ username: claimed, password: u?.password || "password123" }); userManager.setReceiveAddress(claimed, recv); const loginRes = userManager.login({ username: claimed, password: u?.password || "password123" }); res.json({ success: true, username: claimed, address: recv.address, token: loginRes.token }); } catch (e) { res.status(400).json({ error: e.message }); } });
-app.post("/api/titles/buy", (req, res) => { try { const u = requireSessionUser(req, res); if (!u) return; const CATALOG = { baron: { name: "Baron / Baroness", price: 10 }, viscount: { name: "Viscount / Viscountess", price: 25 }, earl: { name: "Earl / Countess", price: 50 }, marquess: { name: "Marquess / Marchioness", price: 100 }, duke: { name: "Duke / Duchess", price: 250 }, elector: { name: "Sovereign Elector", price: 500 } }; const key = String(req.body?.titleKey || "").toLowerCase(); const item = CATALOG[key]; if (!item) return res.status(400).json({ error: "Invalid title" }); const job = gameStore._enqueueNumTransfer({ type: "title_purchase", from: u, to: "crown_treasury", amount: item.price, description: "Royal Title: " + item.name }); if (!gameStore.playerTitles) gameStore.playerTitles = {}; gameStore.playerTitles[u] = item.name; gameStore.scheduleSave(); res.json({ success: true, title: item.name, price: item.price, job: mintQueue.publicJob(job), wallet: walletView(u) }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/titles/buy', (req, res) => {
+  try {
+    const username = requireSessionUser(req, res);
+    if (!username) return;
+    const purchase = gameStore.purchasePeerage(username, String(req.body?.titleKey || '').toLowerCase());
+    res.json({ success: true, ...purchase, wallet: walletView(username) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -358,6 +367,7 @@ app.get('/api/auth/me', (req, res) => {
   res.json({
     username: user.username,
     role: userManager.getRole(user.username),
+    title: gameStore.playerTitles[user.username] || null,
     receiveAddress: user.receiveAddress || null,
     wallet: walletView(user.username)
   });
@@ -378,6 +388,14 @@ const toPublicPlot = (plot) => ({
   row: plot.row,
   col: plot.col,
   isLandmark: !!plot.isLandmark,
+  isCastle: !!plot.isCastle,
+  garrison: Number(plot.garrison) || 0,
+  health: Number(plot.health ?? (plot.isCastle ? 1000 : 100)),
+  maxHealth: Number(plot.maxHealth ?? (plot.isCastle ? 1000 : 100)),
+  fortificationLevel: Number(plot.fortificationLevel || 0),
+  siege: plot.siege || null,
+  castleOwner: plot.castleOwner || null,
+  controller: plot.controller || plot.castleOwner || null,
   isClaimed: !!plot.isClaimed,
   owner: plot.owner ? (plot.owner.startsWith('@') ? plot.owner : `@${plot.owner}`) : null,
   rarity: plot.rarity,
@@ -385,6 +403,9 @@ const toPublicPlot = (plot) => ({
   rarityName: plot.rarityName,
   price: plot.price,
   building: plot.building ? { ...plot.building } : null,
+  stockpile: { ...(plot.stockpile || {}) },
+  resourceDeposits: { ...(plot.resourceDeposits || {}) },
+  structures: (plot.structures || []).map(structure => ({ ...structure })),
   pendingJobId: plot.pendingJobId || null,
   assetId: plot.assetId || null,
   nftState: plot.nftState ? {
@@ -398,19 +419,26 @@ const toPublicPlot = (plot) => ({
   } : null
 });
 
-app.get('/api/account', (req, res) => {
+app.get('/api/account', async (req, res) => {
   const username = (req.query.username || req.headers['x-numista-user'] || '').toString().trim();
   if (!username) return res.status(400).json({ error: 'username is required' });
 
+  // Deeds are on-chain assets. Rebuild claimed plots from the chain before
+  // answering so a restart never hides a deed that was actually minted.
+  await gameStore.reconcileChainDeeds().catch(err => {
+    console.warn('[account] Deed reconcile failed:', err.message);
+  });
+
   const user = userManager.getUser(username);
   const deeds = gameStore.getAllPlots()
-    .filter(p => p.isClaimed && (p.owner || '').toLowerCase() === username.toLowerCase())
+    .filter(p => p.isClaimed && (p.owner || '').replace(/^@/, '').toLowerCase() === username.replace(/^@/, '').toLowerCase())
     .map(toPublicPlot);
 
   res.json({
     account: user ? {
       username: user.username,
       role: userManager.getRole(user.username),
+      title: gameStore.playerTitles[user.username] || null,
       createdAt: user.createdAt,
       wallet: walletView(user.username)
     } : {
@@ -426,9 +454,11 @@ app.get('/api/account', (req, res) => {
   });
 });
 
-app.get('/api/account/deeds', (req, res) => {
+app.get('/api/account/deeds', async (req, res) => {
   const username = (req.query.username || req.headers['x-numista-user'] || '').toString().trim();
   if (!username) return res.status(400).json({ error: 'username is required' });
+
+  await gameStore.reconcileChainDeeds().catch(() => {});
 
   const deeds = gameStore.getAllPlots()
     .filter(p => p.isClaimed && (p.owner || '').toLowerCase() === username.toLowerCase())
@@ -437,7 +467,8 @@ app.get('/api/account/deeds', (req, res) => {
   res.json({ username, deeds, deedCount: deeds.length });
 });
 
-app.get('/api/plots', (req, res) => {
+app.get('/api/plots', async (req, res) => {
+  await gameStore.reconcileChainDeeds().catch(() => {});
   const all = gameStore.getAllPlots();
   const rarityCounts = {};
   all.forEach(p => {
@@ -455,7 +486,8 @@ app.get('/api/plots', (req, res) => {
   });
 });
 
-app.get('/api/plots/:id', (req, res) => {
+app.get('/api/plots/:id', async (req, res) => {
+  await gameStore.reconcileChainDeeds().catch(() => {});
   const plot = gameStore.getPlotById(req.params.id);
   if (!plot) return res.status(404).json({ error: 'Plot not found' });
   const job = gameStore.getJobForPlot(plot.id);
@@ -466,7 +498,32 @@ app.get('/api/plots/:id', (req, res) => {
 });
 
 // Claim plot: registers the deed to a USERNAME and mints it on-chain.
-app.post('/api/plots/:id/unfreeze', (req, res) => { const p = gameStore.getPlotById(req.params.id); if (!p) return res.status(404).json({ error: 'Plot not found' }); const prevOwner = p.owner; p.isClaimed = false; p.owner = null; p.building = null; p.pendingJobId = null; p.nftState = { stage: 'unminted' }; if (prevOwner) { const bal = chainLedger.getBalance(prevOwner); if (bal.locked > 0) chainLedger.unlock(prevOwner, bal.locked); } gameStore.save(); res.json({ ok: true, plot: p }); });
+app.post('/api/plots/:id/unfreeze', (req, res) => {
+  const username = requireSessionUser(req, res);
+  if (!username) return;
+  if (userManager.getRole(username) !== 'admin') {
+    return res.status(403).json({ error: 'Only an administrator can reset plots' });
+  }
+  const plot = gameStore.getPlotById(req.params.id);
+  if (!plot) return res.status(404).json({ error: 'Plot not found' });
+  const prevOwner = plot.owner;
+  plot.isClaimed = false;
+  plot.owner = null;
+  plot.controller = null;
+  plot.castleOwner = plot.isCastle ? (plot.castleOwner || 'crown_treasury') : null;
+  plot.health = plot.maxHealth || (plot.isCastle ? 1000 : 100);
+  plot.siege = null;
+  plot.fortificationLevel = 0;
+  plot.building = null;
+  plot.pendingJobId = null;
+  plot.nftState = { stage: 'unminted' };
+  if (prevOwner) {
+    const balance = chainLedger.getBalance(prevOwner);
+    if (balance.locked > 0) chainLedger.unlock(prevOwner, balance.locked);
+  }
+  gameStore.save();
+  res.json({ ok: true, plot: toPublicPlot(plot) });
+});
 
 app.post('/api/plots/:id/claim', (req, res) => {
   try {
@@ -478,6 +535,42 @@ app.post('/api/plots/:id/claim', (req, res) => {
     res.status(400).json({ error: err.message });
   }
 });
+
+app.post('/api/plots/:id/build', (req, res) => {
+  try {
+    const username = requireSessionUser(req, res);
+    if (!username) return;
+    const plot = gameStore.buildPlotStructure(req.params.id, username, req.body?.structureType);
+    res.json({ success: true, plot: toPublicPlot(plot) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.get('/api/army', (req, res) => {
+  const username = requireSessionUser(req, res);
+  if (!username) return;
+  res.json({ army: gameStore.getArmy(username) });
+});
+
+app.post('/api/army/recruit', (req, res) => {
+  try {
+    const username = requireSessionUser(req, res);
+    if (!username) return;
+    res.json({ success: true, ...gameStore.recruitSoldiers(username, req.body?.unitType, req.body?.count) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.get('/api/soldiers', (req, res) => { const username = requireSessionUser(req, res); if (!username) return; res.json({ soldiers: gameStore.playerSoldiers[username] || [], equipment: gameStore.getEquipment(username), army: gameStore.getArmy(username) }); });
+app.post('/api/soldiers/:id/equip', (req, res) => { try { const username = requireSessionUser(req, res); if (!username) return; res.json({ success: true, ...gameStore.equipSoldier(username, req.params.id, req.body?.itemId) }); } catch (err) { res.status(400).json({ error: err.message }); } });
+app.post('/api/soldiers/:id/heal', (req, res) => { try { const username = requireSessionUser(req, res); if (!username) return; res.json({ success: true, ...gameStore.healSoldier(username, req.params.id) }); } catch (err) { res.status(400).json({ error: err.message }); } });
+app.post('/api/plots/:id/craft', (req, res) => { try { const username = requireSessionUser(req, res); if (!username) return; const out = gameStore.craftEquipment(req.params.id, username, req.body?.recipe); res.json({ success: true, ...out, plot: toPublicPlot(out.plot) }); } catch (err) { res.status(400).json({ error: err.message }); } });
+app.post('/api/army/create', (req, res) => { try { const username = requireSessionUser(req, res); if (!username) return; res.json({ success: true, army: gameStore.createArmy(username, req.body?.name, req.body?.soldierIds) }); } catch (err) { res.status(400).json({ error: err.message }); } });
+app.post('/api/army/:id/move', (req, res) => { try { const username = requireSessionUser(req, res); if (!username) return; res.json({ success: true, army: gameStore.moveArmy(username, req.params.id, req.body?.targetPlotId, !!req.body?.siege) }); } catch (err) { res.status(400).json({ error: err.message }); } });
+app.post('/api/plots/:id/repair', (req, res) => { try { const username = requireSessionUser(req, res); if (!username) return; const plot = gameStore.repairPlot(req.params.id, username); res.json({ success: true, plot: toPublicPlot(plot) }); } catch (err) { res.status(400).json({ error: err.message }); } });
+app.post('/api/plots/:id/fortify', (req, res) => { try { const username = requireSessionUser(req, res); if (!username) return; const plot = gameStore.fortifyPlot(req.params.id, username); res.json({ success: true, plot: toPublicPlot(plot) }); } catch (err) { res.status(400).json({ error: err.message }); } });
 
 // Town Hall: claim collected municipal taxes
 app.post('/api/plots/:id/town-hall/claim-taxes', (req, res) => {
@@ -492,6 +585,23 @@ app.post('/api/plots/:id/town-hall/claim-taxes', (req, res) => {
 });
 
 // Income properties: collect accrued rent / utility yield
+app.post('/api/plots/collect-all-income', (req, res) => { try { const username = requireSessionUser(req, res); if (!username) return; res.json(gameStore.collectAllIncome(username)); } catch (err) { res.status(400).json({ error: err.message }); } });
+
+app.get('/api/castles', (req, res) => {
+  res.json({ castles: gameStore.getConquerableCastles().map(toPublicPlot) });
+});
+
+app.post('/api/castles/:id/conquer', (req, res) => {
+  try {
+    const username = requireSessionUser(req, res);
+    if (!username) return;
+    if (!req.body?.armyId) return res.status(400).json({ error: 'Choose an army to march on this castle' });
+    res.json({ success: true, army: gameStore.moveArmy(username, req.body.armyId, req.params.id, true), message: 'Army dispatched. The siege resolves on arrival.' });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 app.post('/api/plots/:id/collect-income', (req, res) => {
   try {
     const username = requireSessionUser(req, res);
@@ -520,8 +630,8 @@ app.post('/api/plots/:id/upgrade', (req, res) => {
 // ----------------------------------------------------
 
 app.get('/api/jobs', (req, res) => {
-  const username = requestUser(req);
-  if (!username) return res.status(401).json({ error: 'Sign in required' });
+  const username = requireSessionUser(req, res);
+  if (!username) return;
   res.json({
     jobs: mintQueue.getJobsFor(username).map(j => mintQueue.publicJob(j)).filter(Boolean),
     summary: mintQueue.summary()
@@ -572,6 +682,22 @@ app.get('/api/assets/:assetId/balance/:username', async (req, res) => {
   }
 });
 
+app.get('/api/battles', (req, res) => {
+  res.json({ battles: gameStore.battleLog.slice(0, Math.min(100, Math.max(1, Number(req.query.limit) || 25))) });
+});
+
+app.get('/api/battles/:assetId', async (req, res) => {
+  try {
+    const assetId = String(req.params.assetId || '').toLowerCase();
+    if (!/^[a-f0-9]{64}$/.test(assetId)) return res.status(400).json({ error: 'Invalid battle asset ID' });
+    const saved = readDeedMetadata(assetId);
+    if (!saved || saved.metadata?.schema !== 'townforge.numista.battle/v1') return res.status(404).json({ error: 'Battle report not found' });
+    const asset = await chainAdapter.getAsset(assetId).catch(() => null);
+    const held = await chainAdapter.getAssetBalance(assetId, saved.metadata.attacker).catch(() => 0);
+    res.json({ assetId, report: saved.metadata, metadataHash: saved.metadataHash, txHash: gameStore.battleLog.find(b => b.assetId === assetId)?.txHash || null, verified: !!(saved.verified && asset && asset.metadataHash === saved.metadataHash && Number(held) >= 1), onChainAsset: asset ? { assetId: asset.assetId, assetType: asset.assetType, metadataHash: asset.metadataHash, createdHeight: asset.createdHeight || null } : null, ownerUnits: Number(held) });
+  } catch (err) { res.status(500).json({ error: err.message || 'Could not verify battle report' }); }
+});
+
 // ----------------------------------------------------
 // COIN MINTS (admin only)
 // ----------------------------------------------------
@@ -598,7 +724,7 @@ app.post('/api/mint/issue', (req, res) => {
   }
 });
 
-app.get("/api/mints/my-coins", (req, res) => { const u = requireSessionUser(req, res); if (!u) return; const allCoins = gameStore.getMintLedger(500).flatMap(b => b.coins || []).filter(c => String(c.owner || "").toLowerCase() === u); const yieldBonus = gameStore.getPlayerYieldBonus(u); res.json({ coins: allCoins, yieldBonus }); });
+app.get("/api/mints/my-coins", (req, res) => { const u = requireSessionUser(req, res); if (!u) return; const allCoins = gameStore.getMintLedger(500).flatMap(b => b.coins || []).filter(c => String(c.owner || "").replace(/^@/, "").toLowerCase() === u.replace(/^@/, "").toLowerCase()); const yieldBonus = typeof gameStore.getPlayerYieldBonus === 'function' ? gameStore.getPlayerYieldBonus(u) : 0; res.json({ coins: allCoins, yieldBonus, gameCoinBalance: Number(gameStore.playerCoinPurses[u] || 0) }); });
 app.get('/api/mints', (req, res) => {
   res.json({ mints: gameStore.getMintLedger(Number(req.query.limit) || 100) });
 });
@@ -1600,78 +1726,29 @@ async function boot() {
   await chainLedger.bootstrap();
   mintQueue.start();
 
-  // Wire up confirmed/reverted handlers so the chain ledger settles automatically
+  // The game store owns the job handlers: it restores plot/deed state and
+  // settles the chain ledger. Wrap them so user records are persisted too,
+  // instead of replacing them with a second, incomplete handler set.
   mintQueue.setHandlers({
-    onConfirmed: (job) => {
+    onConfirmed: job => {
       try {
-        const { type, username, snapshot } = job;
-        if (!username) return;
-
-        if (type === 'currency_mint' || type === 'deposit') {
-          const amount = Number(snapshot?.amount || 0);
-          if (amount > 0) {
-            chainLedger.settlePending(username, amount);
-            chainLedger.recordChainMove({
-              username,
-              amount,
-              description: snapshot?.description || 'In-game NUM minted from native deposit',
-              txHash: job.steps?.find(s => s.txHash)?.txHash || null,
-              status: 'confirmed',
-              jobId: job.id
-            });
-          }
-        }
-
-        if (type === 'deed_claim' || type === 'transfer' || type === 'title_purchase' || type === 'handle_mint') {
-          const amount = Number(snapshot?.cost || snapshot?.amount || 0);
-          if (amount > 0 && snapshot?.from) {
-            chainLedger.settleSpend(snapshot.from, amount);
-            if (snapshot?.to) {
-              chainLedger.receiveChain(snapshot.to, amount);
-            }
-          }
-        }
-
-        if (type === 'income' || type === 'town_hall_tax') {
-          const amount = Number(snapshot?.amount || 0);
-          if (amount > 0) {
-            chainLedger.settlePending(username, amount);
-          }
-        }
-
-        if (type === 'treasury_block_reward') {
-          const amount = Number(snapshot?.amount || 0);
-          if (amount > 0) {
-            chainLedger.settlePending(CONFIG.CHAIN.TREASURY_USERNAME, amount);
-          }
-        }
-
+        gameStore._onJobConfirmed(job);
+      } finally {
         userManager.save();
-      } catch (err) {
-        console.warn('[mint-queue] onConfirmed handler error:', err.message);
       }
     },
-
-    onReverted: (job) => {
+    onReverted: job => {
       try {
-        const { type, username, snapshot } = job;
-        if (!username) return;
-
-        if (type === 'currency_mint' || type === 'deposit') {
-          const amount = Number(snapshot?.amount || 0);
-          if (amount > 0) chainLedger.dropPending(username, amount);
-        }
-
-        if (['deed_claim', 'transfer', 'title_purchase', 'handle_mint', 'upgrade'].includes(type)) {
-          const amount = Number(snapshot?.cost || snapshot?.amount || 0);
-          if (amount > 0 && snapshot?.from) chainLedger.unlock(snapshot.from, amount);
-        }
-
+        gameStore._onJobReverted(job);
+      } finally {
         userManager.save();
-      } catch (err) {
-        console.warn('[mint-queue] onReverted handler error:', err.message);
       }
     }
+  });
+
+  // Rebuild any claimed deeds that were minted before this process started.
+  gameStore.reconcileChainDeeds({ force: true }).catch(err => {
+    console.warn('[store] Initial deed reconcile failed:', err.message);
   });
 
   startBuiltInStratumServer();

@@ -1,5 +1,5 @@
 {
-  "savedAt": "2026-11-25T21:46:09.308Z",
+  "savedAt": "2026-11-27T19:38:37.743Z",
   "users": [
     {
       "username": "danie",
@@ -39,11 +39,512 @@
       "role": "user",
       "createdAt": "2026-11-25T15:29:22.015Z",
       "wallet": {
-        "balance": 0,
-        "unlockedBalance": 0,
+        "balance": 3474.953,
+        "unlockedBalance": 3474.953,
         "pendingBalance": 0,
         "lockedBalance": 0,
-        "transfers": []
+        "transfers": [
+          {
+            "id": "mwzdwm5l_g9gtxx",
+            "amount": 2.25,
+            "type": "credit",
+            "description": "Block reward (#1448-#1456)",
+            "txHash": "99087f98e275ebb8f832da54aae50ebc404fe8c2d4b41d9475e823629975c4c8",
+            "timestamp": "2026-11-27T19:38:37.737Z",
+            "height": 1466,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwywcj6m_5u7i1k",
+            "amount": 2.25,
+            "type": "credit",
+            "description": "Block reward (#1439-#1447)",
+            "txHash": "f040b4c9b4231e1209571ef45668b95afbde15881a541af0720d64f3218d242f",
+            "timestamp": "2026-11-27T11:27:07.295Z",
+            "height": 1457,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyvn3qr_yymzpk",
+            "amount": 2.25,
+            "type": "credit",
+            "description": "Block reward (#1430-#1438)",
+            "txHash": "b74ecf28fe7c42cb0bae3899a1379672003a0cbd97f0dfbf9216fc4a328dd6dc",
+            "timestamp": "2026-11-27T11:07:20.883Z",
+            "height": 1448,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyv58w0_cv3b3w",
+            "amount": 50,
+            "type": "credit",
+            "description": "Deed payment received: Otterbourne Rise",
+            "txHash": "184e2b36fe3afe26a467a13cd1a0ec008dce72e9579713b381783e105ce19ade",
+            "timestamp": "2026-11-27T10:53:27.744Z",
+            "height": 1424,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyv58vm_fra4cc",
+            "amount": 50,
+            "type": "credit",
+            "description": "Deed payment received: Kestrelgate Reach",
+            "txHash": "cb556c4aaf3733977e938b957be807106409829f7d613484e1d9f69d5d6c67a5",
+            "timestamp": "2026-11-27T10:53:27.730Z",
+            "height": 1424,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyuwztz_zpon0v",
+            "amount": 2.25,
+            "type": "credit",
+            "description": "Block reward (#1421-#1429)",
+            "txHash": "5e44c47c1c5e191082291c2bd9be6135d64764bb7d317cd6e14c0d460d69dafd",
+            "timestamp": "2026-11-27T10:47:02.759Z",
+            "height": 1439,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyughs8_mziccf",
+            "amount": 2.25,
+            "type": "credit",
+            "description": "Block reward (#1412-#1420)",
+            "txHash": "090c26aeb66929d5e7b65abee2b05f038e07fb8ceea5d91ff8b68f1ab3b2363c",
+            "timestamp": "2026-11-27T10:34:12.873Z",
+            "height": 1430,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyuc8nf_675deb",
+            "amount": -0.3795,
+            "type": "debit",
+            "description": "Rental income paid: Collect 0.38 NUM across 4 deeds",
+            "txHash": "9c7fdd35de30de4089275546dd81d499e1079b669ed50bc0bdfa127d849ebb09",
+            "timestamp": "2026-11-27T10:30:54.411Z",
+            "height": 1424,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyu7utk_zclmvt",
+            "amount": 2.25,
+            "type": "credit",
+            "description": "Block reward (#1403-#1411)",
+            "txHash": "bc9579a075d8c718c90945ad98f5a2fb0a714c8ee59b25c913261f313e5500ad",
+            "timestamp": "2026-11-27T10:27:29.864Z",
+            "height": 1421,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwytx3al_v65xxg",
+            "amount": 500,
+            "type": "credit",
+            "description": "Deed payment received: Ivythorpe Wharf",
+            "txHash": "996c642ba06a5aded7f2f24e425dd2b720a0f9df45a5b070e5060504e59cb303",
+            "timestamp": "2026-11-27T10:19:07.629Z",
+            "height": 1398,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwytlzyn_qso0nw",
+            "amount": 2.25,
+            "type": "credit",
+            "description": "Block reward (#1394-#1402)",
+            "txHash": "a05a1379db0b0631186ebfe56cc23a5b9772b07f7771fd9b6f4563d205de9db4",
+            "timestamp": "2026-11-27T10:10:30.095Z",
+            "height": 1412,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyta7ce_lvvg1d",
+            "amount": 30,
+            "type": "credit",
+            "description": "Received from @unknown_6",
+            "txHash": "796cf1bf2b2fc2807469ec58b9961862996e4915ef2093a11d1ea58548921687",
+            "timestamp": "2026-11-27T10:01:19.790Z",
+            "height": 1407,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyta7c2_ba6xmm",
+            "amount": 1,
+            "type": "credit",
+            "description": "Received from @unknown_6",
+            "txHash": "aeccdf4d3b7d45a8296decf167b637d7a57a257ca593c063e8f0119e419dc735",
+            "timestamp": "2026-11-27T10:01:19.778Z",
+            "height": 1407,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyt4gmx_x95jpv",
+            "amount": 50,
+            "type": "credit",
+            "description": "Deed payment received: Fenford Reach",
+            "txHash": "68372097206dc599b7041969158b58a66f84eca2f7d4fe10b6492dfdb04b0fd4",
+            "timestamp": "2026-11-27T09:56:51.897Z",
+            "height": 1386,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyt2wym_40npz9",
+            "amount": 2.5,
+            "type": "credit",
+            "description": "Block reward (#1384-#1393)",
+            "txHash": "37149a1e08c63a84ca2e40228f089dfeb3d4a6619278f8f8745709a93a174223",
+            "timestamp": "2026-11-27T09:55:39.743Z",
+            "height": 1403,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwysih4r_w3sl9u",
+            "amount": 2.25,
+            "type": "credit",
+            "description": "Block reward (#1375-#1383)",
+            "txHash": "310d7c7934e878eada69ae2befecc41a51887952f08b814a02182123e243afe4",
+            "timestamp": "2026-11-27T09:39:46.107Z",
+            "height": 1393,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwys4f16_auyfb4",
+            "amount": 2.25,
+            "type": "credit",
+            "description": "Block reward (#1366-#1374)",
+            "txHash": "4b20ff072a0c80558d08b5e28367bcf7470271ca0aa16abcb415c55eec5a6407",
+            "timestamp": "2026-11-27T09:28:50.202Z",
+            "height": 1384,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyrjnsc_4qdiui",
+            "amount": 2.75,
+            "type": "credit",
+            "description": "Block reward (#1355-#1365)",
+            "txHash": "4b1b7d337072beb104f1e06f370ea70d1fd90dab945d8444219b5381d9ef8a87",
+            "timestamp": "2026-11-27T09:12:41.772Z",
+            "height": 1375,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyr84b9_sjakg7",
+            "amount": 2.25,
+            "type": "credit",
+            "description": "Block reward (#1346-#1354)",
+            "txHash": "3c8caa332f169e0062a3291217b70a559db0d68ed2ad2dbc6ffc8da7bf9fadba",
+            "timestamp": "2026-11-27T09:03:43.317Z",
+            "height": 1364,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyqvcss_d0cxzc",
+            "amount": 2.25,
+            "type": "credit",
+            "description": "Block reward (#1337-#1345)",
+            "txHash": "cc5c52872a10cec766894605daa7f0dbf6923b95b27489c4ed90811b542da0b2",
+            "timestamp": "2026-11-27T08:53:47.788Z",
+            "height": 1355,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyqlffe_smzskk",
+            "amount": 1,
+            "type": "credit",
+            "description": "Received from @unknown_6",
+            "txHash": "308c14a851a313e0e784a6f49ecd24d8a5fc3debf6bc3b57d3a1c76ad29b10dc",
+            "timestamp": "2026-11-27T08:46:04.634Z",
+            "height": 1346,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyqlff2_m7demw",
+            "amount": 2.25,
+            "type": "credit",
+            "description": "Block reward (#1328-#1336)",
+            "txHash": "80c64b42a0a3ca9cc86fac56abaa566b595f24c48c8a12947bdb336adad530d6",
+            "timestamp": "2026-11-27T08:46:04.622Z",
+            "height": 1346,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyq5p95_hikphj",
+            "amount": 2.25,
+            "type": "credit",
+            "description": "Block reward (#1319-#1327)",
+            "txHash": "8b910570836105c4b11f630184d9a8aeb2b1c7dc944c1ff00a84301804a7d001",
+            "timestamp": "2026-11-27T08:33:50.873Z",
+            "height": 1337,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwypsvig_ehpeep",
+            "amount": 2.75,
+            "type": "credit",
+            "description": "Block reward (#1308-#1318)",
+            "txHash": "6a9ef3f6192e45620f8c88cafc18d98824eb4deba1dd48df0007c66bb250516c",
+            "timestamp": "2026-11-27T08:23:52.456Z",
+            "height": 1328,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwypm8i8_r1xxki",
+            "amount": 2.25,
+            "type": "credit",
+            "description": "Block reward (#1299-#1307)",
+            "txHash": "b073a8e770a400835b8ebc221cb34c08b852526e7f221f0a501e05f70cc5c858",
+            "timestamp": "2026-11-27T08:18:42.704Z",
+            "height": 1317,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyp8rid_tuf8zr",
+            "amount": 2.5,
+            "type": "credit",
+            "description": "Block reward (#1289-#1298)",
+            "txHash": "0fcc5b83b4ee27a9c4f7053b2870d1586a3afab7340ce5b39153ec2107e14705",
+            "timestamp": "2026-11-27T08:08:14.149Z",
+            "height": 1308,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyosiq4_a0bmaw",
+            "amount": 2.5,
+            "type": "credit",
+            "description": "Block reward (#1279-#1288)",
+            "txHash": "ec0b7170a37032852abf20269b9bea25457a1ef75318d11a492b1eecf892214b",
+            "timestamp": "2026-11-27T07:55:36.268Z",
+            "height": 1298,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyodfqt_g9rvwj",
+            "amount": 2.25,
+            "type": "credit",
+            "description": "Block reward (#1270-#1278)",
+            "txHash": "41cde9d3908b9695113a5b82ab842edd68fcdf1edb820f44092bf5e6906a3f4a",
+            "timestamp": "2026-11-27T07:43:52.565Z",
+            "height": 1288,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyo4jiy_wo1l9w",
+            "amount": 2.5,
+            "type": "credit",
+            "description": "Block reward (#1260-#1269)",
+            "txHash": "4ca3e49594c6fe0ca6f45edf20f29db9aeac84a032aeef82c794b0c311e3a955",
+            "timestamp": "2026-11-27T07:36:57.562Z",
+            "height": 1279,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwynxkts_x83qk6",
+            "amount": 2.75,
+            "type": "credit",
+            "description": "Block reward (#1249-#1259)",
+            "txHash": "0ee94973bfd72c32b2ab8221e5e6271556e702eb9cfe7dc11215e45dabef7a1c",
+            "timestamp": "2026-11-27T07:31:32.656Z",
+            "height": 1269,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwynj9lp_ao8anm",
+            "amount": 2.25,
+            "type": "credit",
+            "description": "Block reward (#1240-#1248)",
+            "txHash": "c28b4015bae73bd52c0b5248c6fb71e7ddf4dc52c48e276104cdf5dfddb50c57",
+            "timestamp": "2026-11-27T07:20:24.925Z",
+            "height": 1258,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyn3o1a_gdbw5e",
+            "amount": 2.75,
+            "type": "credit",
+            "description": "Block reward (#1229-#1239)",
+            "txHash": "d6725183d126054432221df6f42be1800879452772fc327c67c48aa7271c938c",
+            "timestamp": "2026-11-27T07:08:17.134Z",
+            "height": 1249,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyn3o0z_tn3rav",
+            "amount": 500,
+            "type": "credit",
+            "description": "Deed payment received: Holmton Reach",
+            "txHash": "62a145a1ebdb428bb18a058cca5fce3a0126d99885f089289eac3a92c80f27fc",
+            "timestamp": "2026-11-27T07:08:17.123Z",
+            "height": 1231,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyms6x2_3w471q",
+            "amount": 2.25,
+            "type": "credit",
+            "description": "Block reward (#1220-#1228)",
+            "txHash": "0ec0938848b2a74dfa11ae3cdae37c89f3c783fb064a465dff70c27065776214",
+            "timestamp": "2026-11-27T06:59:21.734Z",
+            "height": 1238,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwympoky_947ksq",
+            "amount": 1,
+            "type": "credit",
+            "description": "Received from @unknown_6",
+            "txHash": "1796ee1dc12d56d5c8fa36e8d72cecedbc257b3fe9c4db18fda3965295d14e16",
+            "timestamp": "2026-11-27T06:57:24.658Z",
+            "height": 1231,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwymm9ee_m5i5xo",
+            "amount": -0.0216,
+            "type": "debit",
+            "description": "Rental income paid: Collect 0.022 NUM across 1 deeds",
+            "txHash": "9496ecd5b9c9154fb1eb9e0ea09bfa21e49c33e9b53e63cd87c5bcb7e9cfd39e",
+            "timestamp": "2026-11-27T06:54:45.014Z",
+            "height": 1229,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwymm9e2_rxr5bb",
+            "amount": 2.25,
+            "type": "credit",
+            "description": "Block reward (#1211-#1219)",
+            "txHash": "866853ee40c90be6d30e311bb6ba140ba4ec802746213a054838129a65691f03",
+            "timestamp": "2026-11-27T06:54:45.002Z",
+            "height": 1229,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwym7yad_341u5z",
+            "amount": 2.25,
+            "type": "credit",
+            "description": "Block reward (#1202-#1210)",
+            "txHash": "e8a01b4b3a036f68f778767e7aa10abdd7ffe4e16456911fed754912cba0a463",
+            "timestamp": "2026-11-27T06:43:37.429Z",
+            "height": 1220,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwylwqfm_i96tj7",
+            "amount": 2.5,
+            "type": "credit",
+            "description": "Block reward (#1192-#1201)",
+            "txHash": "eb7e8cac02473b9b3e5a20d792919d2fbc3d0376bd12eb41cb5e05609d427a61",
+            "timestamp": "2026-11-27T06:34:54.034Z",
+            "height": 1211,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyloobg_9m6k4k",
+            "amount": 2.5,
+            "type": "credit",
+            "description": "Block reward (#1182-#1191)",
+            "txHash": "8ec2f49f37eb948f485e530e01f142217e483b1a6e102fc7a9f33d3e6ba0e2c8",
+            "timestamp": "2026-11-27T06:28:38.044Z",
+            "height": 1201,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyli18k_y9o8zk",
+            "amount": 2.5,
+            "type": "credit",
+            "description": "Block reward (#1172-#1181)",
+            "txHash": "a44de9d575533d50f59a3aa7e5c0eb87f96d22b6a99f92be4c0d6728a6f945f0",
+            "timestamp": "2026-11-27T06:23:28.196Z",
+            "height": 1191,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyla1fm_p07fdr",
+            "amount": 2.75,
+            "type": "credit",
+            "description": "Block reward (#1161-#1171)",
+            "txHash": "1d4e803b26825d2dccb0eac0f2ff7779bbee87a9b11835757ce9c96bcfcda507",
+            "timestamp": "2026-11-27T06:17:15.202Z",
+            "height": 1182,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwykzj4s_u2dngm",
+            "amount": 2.75,
+            "type": "credit",
+            "description": "Block reward (#1150-#1160)",
+            "txHash": "c4a1851d63288665f51c39f2407b679f428723367e49b39806e364b87c83a54f",
+            "timestamp": "2026-11-27T06:09:04.924Z",
+            "height": 1170,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwykpo47_xcn1xk",
+            "amount": 2.5,
+            "type": "credit",
+            "description": "Block reward (#1140-#1149)",
+            "txHash": "4dabbdf355d4e535701307bcd52ef69518a36a5eb6f228935451e4bb9e3f22f6",
+            "timestamp": "2026-11-27T06:01:24.824Z",
+            "height": 1159,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwykdcrw_ftd31q",
+            "amount": 3,
+            "type": "credit",
+            "description": "Block reward (#1128-#1139)",
+            "txHash": "7b88f2ea0d0bc281b978fec01abd9161fa6db7d5b92cb727e2f31c5f8e97a310",
+            "timestamp": "2026-11-27T05:51:50.252Z",
+            "height": 1149,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyjz6a9_8m6bsm",
+            "amount": 2.5,
+            "type": "credit",
+            "description": "Block reward (#1118-#1127)",
+            "txHash": "c68bcfe2e43a17a6393912960889324e54be80df256a228acb39bd2b9e388e67",
+            "timestamp": "2026-11-27T05:40:48.657Z",
+            "height": 1137,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyjq32l_tzuk5r",
+            "amount": 2.25,
+            "type": "credit",
+            "description": "Block reward (#1109-#1117)",
+            "txHash": "04cd593739868a38fbf500d64f0349cf25c0aee735ba47409b447fb246792e20",
+            "timestamp": "2026-11-27T05:33:44.589Z",
+            "height": 1127,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyjk0vl_6s3jt5",
+            "amount": 3,
+            "type": "credit",
+            "description": "Block reward (#1097-#1108)",
+            "txHash": "611a5c3dc60674be0a19d2b2a253b3a6f2360e8832f797c33a009807abc1536a",
+            "timestamp": "2026-11-27T05:29:01.809Z",
+            "height": 1118,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyj8vfv_t46zjc",
+            "amount": 2.5,
+            "type": "credit",
+            "description": "Block reward (#1087-#1096)",
+            "txHash": "6df4e0a563e0c72282740ffe29acb11fd1f9df220bb9d951c33f1a01659cbf35",
+            "timestamp": "2026-11-27T05:20:21.547Z",
+            "height": 1107,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyiy1mf_ammdev",
+            "amount": 2.5,
+            "type": "credit",
+            "description": "Block reward (#1077-#1086)",
+            "txHash": "fe03acdfe75800b5f7aedf523a1bc8469f4fdc7e73355c8e40fbea20621e1cc1",
+            "timestamp": "2026-11-27T05:11:56.343Z",
+            "height": 1096,
+            "status": "confirmed"
+          }
+        ]
       },
       "receiveAddress": null,
       "chainIdentity": "unregistered",
@@ -72,6 +573,533 @@
         "username": "unknown_5",
         "secretPassword": "6f3d8afaefccdaf88b075823c79a290fb08faeb2c2d2b2e827051eabe2166152",
         "txHash": "c3699e45665a18b235b1f0c5a58d7476df1e1288f6b7424eeb48d44265fd07dd",
+        "blockHeight": null
+      }
+    },
+    {
+      "username": "unknown_6",
+      "password": "e7ac244342d4041549ef25954b2b869b59eb04490834f6f920f7be982eb77db7",
+      "role": "user",
+      "createdAt": "2026-11-26T16:18:15.052Z",
+      "wallet": {
+        "balance": 289.26,
+        "unlockedBalance": 289.26,
+        "pendingBalance": 0,
+        "lockedBalance": 0,
+        "transfers": [
+          {
+            "id": "mwyv58w2_algl1u",
+            "amount": 0,
+            "type": "credit",
+            "description": "Deed minted on-chain: Otterbourne Rise",
+            "txHash": "083739c2130f19f3c8513599a078a1fb9c6cfb4adb89b0604fc4179f3d3c05cf",
+            "timestamp": "2026-11-27T10:53:27.746Z",
+            "height": 1442,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyv58vy_q8liaz",
+            "amount": -50,
+            "type": "debit",
+            "description": "Land deed purchase: Otterbourne Rise",
+            "txHash": "184e2b36fe3afe26a467a13cd1a0ec008dce72e9579713b381783e105ce19ade",
+            "timestamp": "2026-11-27T10:53:27.742Z",
+            "height": 1424,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyv58vp_wklnbj",
+            "amount": 0,
+            "type": "credit",
+            "description": "Deed minted on-chain: Kestrelgate Reach",
+            "txHash": "f48444a3f564dc872868761fc3076d7530487a6c5916349d4ea9c00aa6934986",
+            "timestamp": "2026-11-27T10:53:27.733Z",
+            "height": 1442,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyv58vk_xfetyq",
+            "amount": -50,
+            "type": "debit",
+            "description": "Land deed purchase: Kestrelgate Reach",
+            "txHash": "cb556c4aaf3733977e938b957be807106409829f7d613484e1d9f69d5d6c67a5",
+            "timestamp": "2026-11-27T10:53:27.728Z",
+            "height": 1424,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyuc8nj_h43o7o",
+            "amount": 0.3795,
+            "type": "credit",
+            "description": "Rental income: Collect 0.38 NUM across 4 deeds",
+            "txHash": "9c7fdd35de30de4089275546dd81d499e1079b669ed50bc0bdfa127d849ebb09",
+            "timestamp": "2026-11-27T10:30:54.415Z",
+            "height": 1424,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyu7utw_blezt9",
+            "amount": -20,
+            "type": "debit",
+            "description": "Upgrade to L2: Fenford Reach",
+            "txHash": "8c501280b797a355d17c9b7216c48475f8c960723d87ca54d984e07431d8669a",
+            "timestamp": "2026-11-27T10:27:29.876Z",
+            "height": 1421,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwytx3am_0ghnpn",
+            "amount": 0,
+            "type": "credit",
+            "description": "Deed minted on-chain: Ivythorpe Wharf",
+            "txHash": "ba933f1c0932657c2f839b8167ded6a7116086187b5331aa0e7c61bb168480e8",
+            "timestamp": "2026-11-27T10:19:07.630Z",
+            "height": 1416,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwytx3aj_5nf8yv",
+            "amount": -500,
+            "type": "debit",
+            "description": "Land deed purchase: Ivythorpe Wharf",
+            "txHash": "996c642ba06a5aded7f2f24e425dd2b720a0f9df45a5b070e5060504e59cb303",
+            "timestamp": "2026-11-27T10:19:07.627Z",
+            "height": 1398,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyta7cc_btbtzc",
+            "amount": -30,
+            "type": "debit",
+            "description": "Pre-1920 Mint - 30 NUM",
+            "txHash": "796cf1bf2b2fc2807469ec58b9961862996e4915ef2093a11d1ea58548921687",
+            "timestamp": "2026-11-27T10:01:19.788Z",
+            "height": 1407,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyta7bz_fr9nen",
+            "amount": -1,
+            "type": "debit",
+            "description": "Pre-1920 Mint - 1 NUM",
+            "txHash": "aeccdf4d3b7d45a8296decf167b637d7a57a257ca593c063e8f0119e419dc735",
+            "timestamp": "2026-11-27T10:01:19.775Z",
+            "height": 1407,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyt4gmy_1usrbu",
+            "amount": 0,
+            "type": "credit",
+            "description": "Deed minted on-chain: Fenford Reach",
+            "txHash": "3442a626ea9e992419f38bf6b2e5dbcce7c3a64fcde771aa360878f02e0d4e7d",
+            "timestamp": "2026-11-27T09:56:51.898Z",
+            "height": 1404,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyt4gmv_t28tsr",
+            "amount": -50,
+            "type": "debit",
+            "description": "Land deed purchase: Fenford Reach",
+            "txHash": "68372097206dc599b7041969158b58a66f84eca2f7d4fe10b6492dfdb04b0fd4",
+            "timestamp": "2026-11-27T09:56:51.895Z",
+            "height": 1386,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyt18l3_254zm0",
+            "amount": -400,
+            "type": "debit",
+            "description": "Upgrade to L3: Holmton Reach",
+            "txHash": "93ddbefd77a5117e7e1bd0d6b9c317eb133bfb66e9e33650c534bb4e3e93256d",
+            "timestamp": "2026-11-27T09:54:21.495Z",
+            "height": 1399,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwysih5v_22etna",
+            "amount": 811.978,
+            "type": "credit",
+            "description": "Native NUM conversion settled (47d628436f...)",
+            "txHash": "47d628436f8ff320efd6adcc81a4b5dd11671ce97520c61c6b1f8522c8749fad",
+            "timestamp": "2026-11-27T09:39:46.147Z",
+            "height": 1393,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwysih45_5pxl8a",
+            "amount": -60,
+            "type": "debit",
+            "description": "Upgrade to L4: Ashford Bank",
+            "txHash": "4eea9aa6777d5295ab0af9710f5e41f454321e10dc61d22bac942c142ba67888",
+            "timestamp": "2026-11-27T09:39:46.085Z",
+            "height": 1393,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwys399j_5onrux",
+            "amount": 600,
+            "type": "credit",
+            "description": "Native NUM deposit settled (chain...)",
+            "txHash": "2e8e1f54a9bfbcf471e32d275bf4d92760b6b419dc12b8434eb467704700cf26",
+            "timestamp": "2026-11-27T09:27:56.071Z",
+            "height": 1383,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyqlffc_m14pgs",
+            "amount": -1,
+            "type": "debit",
+            "description": "Pre-1920 Mint - 1 NUM",
+            "txHash": "308c14a851a313e0e784a6f49ecd24d8a5fc3debf6bc3b57d3a1c76ad29b10dc",
+            "timestamp": "2026-11-27T08:46:04.632Z",
+            "height": 1346,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyq833e_3dyqi4",
+            "amount": -200,
+            "type": "debit",
+            "description": "Upgrade to L2: Holmton Reach",
+            "txHash": "962da6fd678f3ad530e01d576fe7db204f3cdd4599ef1446ff89762d94a57e51",
+            "timestamp": "2026-11-27T08:35:42.122Z",
+            "height": 1338,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyq832t_gyv872",
+            "amount": -40,
+            "type": "debit",
+            "description": "Upgrade to L3: Ashford Bank",
+            "txHash": "6d307bafc389013bb1dd9979a2229c2d8c1b5fa4e985a14d1971814c32a8c3fd",
+            "timestamp": "2026-11-27T08:35:42.101Z",
+            "height": 1338,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyn3o11_lweh77",
+            "amount": 0,
+            "type": "credit",
+            "description": "Deed minted on-chain: Holmton Reach",
+            "txHash": "057ac22e452a3fcb8dd128310aa7d0e77f254dae19fcdc8aee330a3c193348af",
+            "timestamp": "2026-11-27T07:08:17.125Z",
+            "height": 1249,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyn3o0x_2f7rgd",
+            "amount": -500,
+            "type": "debit",
+            "description": "Land deed purchase: Holmton Reach",
+            "txHash": "62a145a1ebdb428bb18a058cca5fce3a0126d99885f089289eac3a92c80f27fc",
+            "timestamp": "2026-11-27T07:08:17.121Z",
+            "height": 1231,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwympokw_6b6icx",
+            "amount": -1,
+            "type": "debit",
+            "description": "Pre-1920 Mint - 1 NUM",
+            "txHash": "1796ee1dc12d56d5c8fa36e8d72cecedbc257b3fe9c4db18fda3965295d14e16",
+            "timestamp": "2026-11-27T06:57:24.656Z",
+            "height": 1231,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwymm9ef_nbdzjn",
+            "amount": 0.0216,
+            "type": "credit",
+            "description": "Rental income: Collect 0.022 NUM across 1 deeds",
+            "txHash": "9496ecd5b9c9154fb1eb9e0ea09bfa21e49c33e9b53e63cd87c5bcb7e9cfd39e",
+            "timestamp": "2026-11-27T06:54:45.015Z",
+            "height": 1229,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwymm9dt_5ggvsx",
+            "amount": -20,
+            "type": "debit",
+            "description": "Upgrade to L2: Ashford Bank",
+            "txHash": "6d3b3aa8b4cb930aff1d1df9bcf38b87a87222c177aa56d738e2daa7ffc2e373",
+            "timestamp": "2026-11-27T06:54:44.993Z",
+            "height": 1229,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyhb4sj_ta33lz",
+            "amount": 0,
+            "type": "credit",
+            "description": "Deed minted on-chain: Ashford Bank",
+            "txHash": "eff4e5488db809bb1c744e7d570de510856402283511e933cc1d91e963a81fb2",
+            "timestamp": "2026-11-27T04:26:07.747Z",
+            "height": 1046,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyhb4se_b5vzpr",
+            "amount": -50,
+            "type": "debit",
+            "description": "Land deed purchase: Ashford Bank",
+            "txHash": "094637032092530e339e1bb3ea32d712fb4b92ec5f9625a1aded4d0771231711",
+            "timestamp": "2026-11-27T04:26:07.742Z",
+            "height": 1028,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwygdm4h_921s06",
+            "amount": 200,
+            "type": "credit",
+            "description": "Native NUM conversion settled (ccf0f30440...)",
+            "txHash": "ccf0f304407148d868609a68485f35950e487bf953de10ce25675ad3e797304f",
+            "timestamp": "2026-11-27T04:00:03.905Z",
+            "height": 1034,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyf6ldo_8h2v4a",
+            "amount": 50,
+            "type": "credit",
+            "description": "Deed claim reverted: Flintmere Common",
+            "txHash": null,
+            "timestamp": "2026-11-27T03:26:36.732Z",
+            "height": null,
+            "status": "reverted"
+          },
+          {
+            "id": "mwyeyu9s_h7hvyo",
+            "amount": -50,
+            "type": "debit",
+            "description": "Royal Peerage: Earl / Countess",
+            "txHash": "68eaa6161b37f94b5da716578f72c43371c117f76ef7d00f6e12477afef96179",
+            "timestamp": "2026-11-27T03:20:35.008Z",
+            "height": 1010,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyevokc_6x8zzg",
+            "amount": 648.605,
+            "type": "credit",
+            "description": "Native NUM conversion settled (05325f74f0...)",
+            "txHash": "05325f74f05c6471dda65871c9a6954fee8cb03e127375b27ef9c38a127259bf",
+            "timestamp": "2026-11-27T03:18:07.644Z",
+            "height": 1008,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwye8zlp_3tcimx",
+            "amount": 100,
+            "type": "credit",
+            "description": "Native NUM deposit settled (chain...)",
+            "txHash": "a6858f0dcbcb520474b908b1afd57fea1580cbf06f5ced581948f5ea2f26b99d",
+            "timestamp": "2026-11-27T03:00:28.861Z",
+            "height": 997,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwyak5vi_g3p9z6",
+            "amount": 0.1703,
+            "type": "credit",
+            "description": "Rental income: Heatherridge Rise",
+            "txHash": "ba13376f067c40e884c3b4836176156a8a2fb68899df5cdd9752b0382263d75c",
+            "timestamp": "2026-11-27T01:17:11.742Z",
+            "height": 859,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwy8r3qv_ii6efh",
+            "amount": 50,
+            "type": "credit",
+            "description": "Deed claim reverted: Stonemoor Reach",
+            "txHash": null,
+            "timestamp": "2026-11-27T00:26:36.343Z",
+            "height": null,
+            "status": "reverted"
+          },
+          {
+            "id": "mwy6nve7_opvhhg",
+            "amount": 50,
+            "type": "credit",
+            "description": "Deed claim reverted: Ivyvale Reach",
+            "txHash": null,
+            "timestamp": "2026-11-26T23:28:06.319Z",
+            "height": null,
+            "status": "reverted"
+          },
+          {
+            "id": "mwy6m70n_wo5llf",
+            "amount": -40,
+            "type": "debit",
+            "description": "Upgrade to L3: Ironstead Reach",
+            "txHash": "3cfc1286c74e8de6e8def506406d71878ea454cca8b3d9861ecbc15001948aa9",
+            "timestamp": "2026-11-26T23:26:48.071Z",
+            "height": 821,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwy6m4x7_lw4t69",
+            "amount": 50,
+            "type": "credit",
+            "description": "Deed claim reverted: Fenford Reach",
+            "txHash": null,
+            "timestamp": "2026-11-26T23:26:45.355Z",
+            "height": null,
+            "status": "reverted"
+          },
+          {
+            "id": "mwy4gnm9_sjojnc",
+            "amount": -20,
+            "type": "debit",
+            "description": "Upgrade to L2: Rushford Wharf",
+            "txHash": "c84144f4d8609ccb81942b7a0e1d5b6d9960fa9e340797874d6732213559d2b3",
+            "timestamp": "2026-11-26T22:26:30.417Z",
+            "height": 814,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwy49mpc_814sbw",
+            "amount": -20,
+            "type": "debit",
+            "description": "Upgrade to L2: Ironstead Reach",
+            "txHash": "0b55879887831f8a218d61f66815f2acb9e59a9b272e83fef6cc55c5de4bedc2",
+            "timestamp": "2026-11-26T22:21:02.640Z",
+            "height": 811,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwy49mov_smdyxx",
+            "amount": -20,
+            "type": "debit",
+            "description": "Upgrade to L2: Heatherridge Rise",
+            "txHash": "2c91106452514f25133d02a8d06c3fa36882d074e1efc70938cf4133de0bfc35",
+            "timestamp": "2026-11-26T22:21:02.623Z",
+            "height": 811,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwy3m1h2_tvcfuq",
+            "amount": 0,
+            "type": "credit",
+            "description": "Deed minted on-chain: Heatherridge Rise",
+            "txHash": "4214287b7501775e8823d5e72766cfcaa8f9aa377b5e8620147ecbd91e05ff4e",
+            "timestamp": "2026-11-26T22:02:42.038Z",
+            "height": 793,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwy3m1gz_1bg50y",
+            "amount": -50,
+            "type": "debit",
+            "description": "Land deed purchase: Heatherridge Rise",
+            "txHash": "78c423a80cb4612bfaa949bf08ead2a3908b715de40eaed47b819891516aa604",
+            "timestamp": "2026-11-26T22:02:42.035Z",
+            "height": 775,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwy3cr5p_kqrvsp",
+            "amount": 0.0484,
+            "type": "credit",
+            "description": "Rental income: Rushford Wharf",
+            "txHash": "ce33b34b5ea26694b8edd98531b9a9e9aca0656b99728e69b978de4f62b088bc",
+            "timestamp": "2026-11-26T21:55:28.765Z",
+            "height": 779,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwy3amks_e8b6ss",
+            "amount": 0.038,
+            "type": "credit",
+            "description": "Rental income: Sallowton Hollow",
+            "txHash": "1eb6c8099e482c449d4e58f91a93e20ebd59027c0e8d6a19acc6897f9cbcf1b8",
+            "timestamp": "2026-11-26T21:53:49.516Z",
+            "height": 778,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwy3amkh_2jxnuc",
+            "amount": 0.0425,
+            "type": "credit",
+            "description": "Rental income: Wealdridge Green",
+            "txHash": "b0b2613a0e4c4a3a6fb7e40ab7c6d5160e85f9cf0f1087cc8a2cb97f2dda1a56",
+            "timestamp": "2026-11-26T21:53:49.505Z",
+            "height": 778,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwy3ak9a_22y08h",
+            "amount": 0.0478,
+            "type": "credit",
+            "description": "Rental income: Ironstead Reach",
+            "txHash": "8ced1788396f43bf5edb0efd7d03f5ce37c308bb83cadc784943110d77e5e391",
+            "timestamp": "2026-11-26T21:53:46.510Z",
+            "height": 777,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwxzka8q_ljfrzq",
+            "amount": 50,
+            "type": "credit",
+            "description": "Deed claim reverted: Ivyvale Reach",
+            "txHash": null,
+            "timestamp": "2026-11-26T20:09:21.628Z",
+            "height": null,
+            "status": "reverted"
+          },
+          {
+            "id": "mwxx1i05_pqhmvb",
+            "amount": 0,
+            "type": "credit",
+            "description": "Deed minted on-chain: Sallowton Hollow",
+            "txHash": "a1ab5af66031a51363eac09ee7b02b7c7d76f31998dad99b337824e45136ff43",
+            "timestamp": "2026-11-26T18:58:45.989Z",
+            "height": 750,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwxx1hzw_8a9860",
+            "amount": -50,
+            "type": "debit",
+            "description": "Land deed purchase: Sallowton Hollow",
+            "txHash": "a9d65ad506204b23828b93c06d98903a399814d3631045c1069f04189d015155",
+            "timestamp": "2026-11-26T18:58:45.980Z",
+            "height": 732,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwxvykxr_cwh9qx",
+            "amount": 0,
+            "type": "credit",
+            "description": "Deed minted on-chain: Wealdridge Green",
+            "txHash": "41fc0b5726391d77739b7437e1e61da8ab4cbb12fec931014f12d9e27dc8bfad",
+            "timestamp": "2026-11-26T18:28:30.208Z",
+            "height": 718,
+            "status": "confirmed"
+          },
+          {
+            "id": "mwxvykxo_qtjq9y",
+            "amount": -50,
+            "type": "debit",
+            "description": "Land deed purchase: Wealdridge Green",
+            "txHash": "e6a034793fcc74694c4b3bb14e990d51543538fab874f9d41d52c2e90f38bca5",
+            "timestamp": "2026-11-26T18:28:30.204Z",
+            "height": 700,
+            "status": "confirmed"
+          }
+        ]
+      },
+      "receiveAddress": {
+        "address": "UGMNxK5U577ZwgGpmwTeQnfozkRk3dXBNNT8N1NacBsPSZbFHBXBKGoYeeEvkVjVy3HDiNXaucSsdAVd4mKEgF4k2Fw76JuiX",
+        "accountIndex": 6,
+        "addressIndex": 0
+      },
+      "chainIdentity": "registered",
+      "identityReceipt": {
+        "address": "UGMNxK5U577ZwgGpmwTeQnfozkRk3dXBNNT8N1NacBsPSZbFHBXBKGoYeeEvkVjVy3HDiNXaucSsdAVd4mKEgF4k2Fw76JuiX",
+        "username": "unknown_6",
+        "secretPassword": "e7ac244342d4041549ef25954b2b869b59eb04490834f6f920f7be982eb77db7",
+        "txHash": "200bdea7f9e6e29a194a79c7510ef2a394d076512f6080942a21f1cfdcdaa7e6",
         "blockHeight": null
       }
     }

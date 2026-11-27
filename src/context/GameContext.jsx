@@ -227,20 +227,19 @@ const register = async (username, password) => {
 
   // Backfill role for sessions saved before roles existed
   useEffect(() => {
-    if (!user?.username || user.role) return;
+    if (!user?.username || !user.token) return;
     let cancelled = false;
     fetch(`/api/auth/me?username=${encodeURIComponent(user.username)}`, { headers: sessionHeaders() })
       .then(res => (res.ok ? res.json() : null))
       .then(data => {
-        if (cancelled || !data?.role) return;
-        const next = { ...user, setUser, role: data.role };
+        if (cancelled || !data) return;
+        const next = { ...user, role: data.role || user.role, title: data.title || null };
         setUser(next);
         localStorage.setItem('goldnumista_user', JSON.stringify(next));
       })
       .catch(() => {});
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [user?.username, user?.token]);
 
   useEffect(() => {
     Promise.all([refreshPlots(), refreshWallet(), refreshNetwork()]).finally(() => {
@@ -499,6 +498,7 @@ const register = async (username, password) => {
         collectIncome,
         upgradePlot,
         issueMint,
+        watchJob,
         // Modals
         activeModal,
         setActiveModal,

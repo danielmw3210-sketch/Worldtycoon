@@ -162,6 +162,22 @@ export function rollBuildingDeterministic(tier, plotId) {
   return rollBuildingForRarity(tier, mulberry32(seed));
 }
 
+const PLOT_RESOURCE_TYPES = ['wood', 'iron', 'tin', 'copper', 'silver', 'gold'];
+
+export function generateResourceDeposits(seed, tier) {
+  const rand = mulberry32(hashString(`${seed}:resources`));
+  const count = 2 + (Number(tier) >= 5 ? 1 : 0) + (Number(tier) >= 8 ? 1 : 0);
+  const shuffled = [...PLOT_RESOURCE_TYPES];
+  shuffleInPlace(shuffled, rand);
+  const deposits = {};
+  for (const resource of shuffled.slice(0, count)) {
+    const rarityBonus = Math.max(0, Number(tier) - 1);
+    const base = resource === 'gold' ? 25 : resource === 'silver' ? 50 : resource === 'copper' ? 80 : 120;
+    deposits[resource] = Math.round(base * (1 + rarityBonus * 0.2) * (0.75 + rand() * 0.5));
+  }
+  return deposits;
+}
+
 function hashString(str) {
   let h = 0x811c9dc5;
   for (let i = 0; i < str.length; i++) {
@@ -368,6 +384,10 @@ export function generateGridPlots() {
       rarityKey: tier.key,
       rarityName: tier.name,
       price: tier.price,
+      resourceSeed: cell.id,
+      resourceDeposits: generateResourceDeposits(cell.id, tier.tier),
+      stockpile: { wood: 24, iron: 6, tin: 0, copper: 0, silver: 0, gold: 0 },
+      structures: [],
       isClaimed: false,
       isLandmark: false,
       owner: null,

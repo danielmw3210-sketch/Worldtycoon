@@ -72,9 +72,11 @@ export default function MapView() {
   const tileLayerRef = useRef(null);
   const gridLayerRef = useRef(null);
   const labelLayerRef = useRef(null);
+  const armyLayerRef = useRef(null);
 
   const {
     plots,
+    user,
     selectedPlot,
     setSelectedPlot,
     setActiveModal,
@@ -175,6 +177,7 @@ export default function MapView() {
       gridLayerRef.current = gridLayer;
 
       labelLayerRef.current = L.layerGroup().addTo(map);
+      armyLayerRef.current = L.layerGroup().addTo(map);
       mapInstanceRef.current = map;
 
       const bumpView = () => setViewVersion(v => v + 1);
@@ -191,6 +194,7 @@ export default function MapView() {
         tileLayerRef.current = null;
         gridLayerRef.current = null;
         labelLayerRef.current = null;
+          armyLayerRef.current = null;
       }
     };
   }, []);
@@ -257,6 +261,40 @@ export default function MapView() {
       drawn += 1;
     }
   }, [plots, viewVersion]);
+
+  useEffect(() => {
+    const layer = armyLayerRef.current;
+    if (!layer || !user?.token) { layer?.clearLayers(); return; }
+    let alive = true;
+    const drawArmies = async () => {
+      try {
+        const response = await fetch('/api/army', { headers: { Authorization: `Bearer ${user.token}` } });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (!alive || !armyLayerRef.current) return;
+        armyLayerRef.current.clearLayers();
+        for (const army of data.army?.armies || []) {
+          const target = plots.find(p => p.id === army.targetPlotId);
+          const origin = plots.find(p => p.id === (army.originPlotId || army.locationPlotId));
+          const destination = target || origin;
+          if (!destination?.coords) continue;
+          let position = destination.coords;
+          if (target?.coords && origin?.coords && army.startedAt && army.travelMs) {
+            const progress = Math.max(0, Math.min(1, (Date.now() - Date.parse(army.startedAt)) / army.travelMs));
+            const routePoints = [origin, ...(army.route || []).map(id => plots.find(p => p.id === id)).filter(Boolean)].map(p => p.coords).filter(Boolean);
+            const scaled = progress * Math.max(1, routePoints.length - 1), segment = Math.min(routePoints.length - 2, Math.floor(scaled)), t = Math.max(0, scaled - segment);
+            if (routePoints.length > 1) position = [routePoints[segment][0] + (routePoints[segment + 1][0] - routePoints[segment][0]) * t, routePoints[segment][1] + (routePoints[segment + 1][1] - routePoints[segment][1]) * t];
+            L.polyline(routePoints.length > 1 ? routePoints : [origin.coords, target.coords], { color: '#fb7185', weight: 2, dashArray: '5 7', opacity: 0.8 }).addTo(armyLayerRef.current);
+          }
+          const icon = L.divIcon({ className: 'army-map-icon', html: `<span title="${String(army.name).replace(/[<>"&]/g, '')}" style="display:grid;place-items:center;width:27px;height:27px;border:2px solid #fecaca;border-radius:50%;background:#991b1b;color:white;font-size:15px;box-shadow:0 0 12px #ef4444aa">⚔</span>`, iconSize: [27, 27], iconAnchor: [13, 13] });
+          L.marker(position, { icon, keyboard: false }).bindTooltip(`${army.name} · ${army.status}`).addTo(armyLayerRef.current);
+        }
+      } catch { /* movement markers are best-effort while the backend is offline */ }
+    };
+    drawArmies();
+    const timer = setInterval(drawArmies, 5000);
+    return () => { alive = false; clearInterval(timer); };
+  }, [user?.token, plots]);
 
   const tabs = [
     { id: 'ALL', label: 'All', count: counts.ALL },

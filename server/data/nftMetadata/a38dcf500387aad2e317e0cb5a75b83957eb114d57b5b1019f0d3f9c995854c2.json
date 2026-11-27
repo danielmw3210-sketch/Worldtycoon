@@ -1,0 +1,34 @@
+{
+  "assetId": "a38dcf500387aad2e317e0cb5a75b83957eb114d57b5b1019f0d3f9c995854c2",
+  "metadataHash": "5c605978d291275a2bac8df4195e30211e2cf4bc34b7e9a6252927bea994a89d",
+  "metadata": {
+    "app": "townforge-numista",
+    "schema": "townforge.numista.deed/v1",
+    "gridVersion": "uk-numista-2026-11-v2",
+    "gridSeed": 20261119,
+    "plotId": "UK-1384",
+    "name": "Otterbourne Rise",
+    "label": "AH-28",
+    "region": "Midlands",
+    "coords": [
+      53.475,
+      -0.599458
+    ],
+    "bounds": [
+      [
+        53.41,
+        -0.711255
+      ],
+      [
+        53.54,
+        -0.487662
+      ]
+    ],
+    "rarity": 1,
+    "rarityKey": "common",
+    "rarityName": "Common",
+    "price": 50,
+    "buildingType": "peasant_lodge",
+    "image": "https://townforge.local/deeds/UK-1384.png"
+  }
+}

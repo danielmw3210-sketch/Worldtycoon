@@ -1,0 +1,34 @@
+{
+  "assetId": "a50c05f649645a03c35a9c43cc65160032c4286e26cf831e593ced72ba186932",
+  "metadataHash": "f44a2b5999874071285eadaa37c059d57146deddeeaeb8c5d6a24b880d58327f",
+  "metadata": {
+    "app": "townforge-numista",
+    "schema": "townforge.numista.deed/v1",
+    "gridVersion": "uk-numista-2026-11-v2",
+    "gridSeed": 20261119,
+    "plotId": "UK-0981",
+    "name": "Ivythorpe Wharf",
+    "label": "AE-20",
+    "region": "Midlands",
+    "coords": [
+      52.435,
+      -1.270238
+    ],
+    "bounds": [
+      [
+        52.37,
+        -1.382034
+      ],
+      [
+        52.5,
+        -1.158441
+      ]
+    ],
+    "rarity": 2,
+    "rarityKey": "uncommon",
+    "rarityName": "Uncommon",
+    "price": 500,
+    "buildingType": "peasant_lodge",
+    "image": "https://townforge.local/deeds/UK-0981.png"
+  }
+}

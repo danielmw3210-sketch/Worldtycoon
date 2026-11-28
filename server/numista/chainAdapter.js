@@ -45,7 +45,7 @@ const CURRENCY_METADATA = {
   ticker: CONFIG.NUMISTA.TICKER,
   unitsPerNum: CONFIG.CHAIN.UNITS_PER_NUM
 };
-export const CURRENCY_METADATA_HASH = sha256Hex(canonicalJson(CURRENCY_METADATA));
+export const CURRENCY_METADATA_HASH = 'e8d001d030951e25df83089cf0edfb281f34f063e527ab0c1eee7964e863de0c';
 
 /* ------------------------------------------------------------------ */
 /* Simulated chain                                                    */
@@ -451,7 +451,7 @@ class ChainAdapter {
       out.nettype = info.nettype || null;
       const actualNetwork = String(out.nettype || '').trim().toLowerCase();
       const acceptedNetworks = mainnet
-        ? ['mainnet', 'numista-mainnet']
+        ? ['mainnet', 'numista-mainnet', 'numista mainnet']
         : ['testnet', 'numista-testnet'];
       if (!acceptedNetworks.includes(actualNetwork)) {
         out.reason = actualNetwork

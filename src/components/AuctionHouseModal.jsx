@@ -42,7 +42,7 @@ export default function AuctionHouseModal() {
       const res = await fetch(`/api/auctions/${auctionId}/bid`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user?.token || ''}` }, body: JSON.stringify({ amount: val }) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      addToast('Bid placed on-chain!', 'success'); setBidAmount(''); await fetchAuctions(); await refreshWallet();
+      addToast('Bid submitted on-chain; awaiting confirmations', 'success'); setBidAmount(''); await fetchAuctions(); await refreshWallet();
     } catch (err) { addToast(err.message, 'error'); } finally { setSubmitting(false); }
   };
 
@@ -52,7 +52,7 @@ export default function AuctionHouseModal() {
       const res = await fetch(`/api/auctions/${auctionId}/buyout`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user?.token || ''}` } });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      addToast('Instant buyout settled (95% seller, 5% Sovereign Vault tax)!', 'success'); await fetchAuctions(); await refreshWallet();
+      addToast('Buyout submitted on-chain; ownership changes after confirmation', 'success'); await fetchAuctions(); await refreshWallet();
     } catch (err) { addToast(err.message, 'error'); } finally { setSubmitting(false); }
   };
 
@@ -67,7 +67,7 @@ export default function AuctionHouseModal() {
     } catch (err) { addToast(err.message, 'error'); } finally { setSubmitting(false); }
   };
 
-  const categories = ['All', 'Land Plot', 'Pre-1920 Coin', 'Tradeable @Handle', 'Peerage Title'];
+  const categories = ['All', 'Land Plot', 'Pre-1920 Coin', 'Peerage Title'];
   const visible = auctions.filter(a => filter === 'All' || (a.category || a.assetType) === filter);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
@@ -75,7 +75,7 @@ export default function AuctionHouseModal() {
         <div className="p-4 bg-slate-900 border-b border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <Gavel className="w-5 h-5 text-amber-400" />
-            <div><h2 className="text-base font-black text-white">Universal Asset Auction House</h2><p className="text-[11px] text-slate-400">Trade Plots, Pre-1920 Coins, @Handles & Titles · 5% Sovereign Vault Tax</p></div>
+            <div><h2 className="text-base font-black text-white">Universal Asset Auction House</h2><p className="text-[11px] text-slate-400">Trade Plots, Pre-1920 Coins & Peerage Titles · 5% Sovereign Vault Tax</p></div>
           </div>
           <div className="flex items-center gap-2">
             <button onClick={() => setTab('browse')} className={'px-3 py-1.5 rounded-lg text-xs font-bold ' + (tab === 'browse' ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-300')}>Browse Lots</button>
@@ -86,7 +86,7 @@ export default function AuctionHouseModal() {
         {tab === 'create' ? (
           <form onSubmit={handleCreate} className="p-5 space-y-3 overflow-y-auto">
             <div className="grid grid-cols-2 gap-3">
-              <div><label className="block text-xs font-mono text-slate-300 mb-1">Asset Type</label><select value={category} onChange={e => setCategory(e.target.value)} className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white"><option value="Land Plot">Land Plot Deed</option><option value="Pre-1920 Coin">Pre-1920 Gold/Silver Coin</option><option value="Tradeable @Handle">Tradeable @Handle</option><option value="Peerage Title">Peerage / Royal Title</option></select></div>
+              <div><label className="block text-xs font-mono text-slate-300 mb-1">Asset Type</label><select value={category} onChange={e => setCategory(e.target.value)} className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white"><option value="Land Plot">Land Plot Deed</option><option value="Pre-1920 Coin">Pre-1920 Gold/Silver Coin</option><option value="Peerage Title">Peerage / Royal Title</option></select></div>
               <div><label className="block text-xs font-mono text-slate-300 mb-1">Duration (Hours)</label><select value={durationHours} onChange={e => setDurationHours(e.target.value)} className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white"><option value="1">1 Hour</option><option value="6">6 Hours</option><option value="24">24 Hours</option><option value="72">3 Days</option></select></div>
             </div>
             {category === 'Land Plot' ? (

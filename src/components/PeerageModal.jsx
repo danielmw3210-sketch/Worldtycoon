@@ -59,11 +59,11 @@ export default function PeerageModal() {
     }
   };
 
-  return <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-    <section className="w-full max-w-xl rounded-2xl border border-amber-500/30 bg-[#161d2a] shadow-2xl overflow-hidden">
-      <header className="flex items-center justify-between p-5 border-b border-slate-700">
-        <div className="flex items-center gap-3"><Crown className="w-6 h-6 text-amber-300" /><div><h2 className="text-lg font-black text-white">Peerage</h2><p className="text-xs text-slate-400">Your title appears beside @{user?.username} and unlocks recruitment.</p></div></div>
-        <button onClick={() => setActiveModal(null)} className="p-2 rounded-lg hover:bg-slate-800 text-slate-300" aria-label="Close"><X className="w-4 h-4" /></button>
+  return <div className="fixed inset-0 z-50 flex items-center justify-center p-4 game-modal-backdrop">
+    <section className="game-modal-panel w-full max-w-xl rounded-2xl overflow-hidden">
+      <header className="game-modal-header flex items-center justify-between p-5">
+        <div className="flex items-center gap-3"><div className="rounded-xl border border-amber-500/25 bg-amber-950/40 p-2.5"><Crown className="w-6 h-6 text-amber-300" /></div><div><h2 className="text-lg font-black text-white">Peerage</h2><p className="text-xs text-slate-400">Your title appears beside @{user?.username} and unlocks recruitment.</p></div></div>
+        <button onClick={() => setActiveModal(null)} className="game-modal-close" aria-label="Close"><X className="w-4 h-4" /></button>
       </header>
       <div className="p-5 space-y-4">
         <div className="rounded-xl bg-slate-900 p-4 text-sm text-slate-300">Current title: <strong className="text-amber-300">{current || 'None yet'}</strong></div>

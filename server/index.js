@@ -13,6 +13,7 @@ import { miningPool } from './mining/pool.js';
 import { stratumBridge } from './mining/stratumBridge.js';
 import { startBuiltInStratumServer } from './mining/stratumServer.js';
 import { cryptoOnramp } from './payment/onramp.js';
+import { stripeOnramp } from './payment/stripeOnramp.js';
 import { RARITY_TIERS } from './data/plotGrid.js';
 import { chainAdapter } from './numista/chainAdapter.js';
 import { mintQueue } from './numista/mintQueue.js';
@@ -25,6 +26,23 @@ const __dirname = path.dirname(__filename);
 const app = express();
 
 app.use(cors());
+
+app.post('/api/onramp/webhook', express.raw({ type: 'application/json', limit: '1mb' }), async (req, res) => {
+  let event;
+  try {
+    event = stripeOnramp.verifyWebhook(req.body, req.headers['stripe-signature']);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+  try {
+    const result = await stripeOnramp.handleEvent(event, { gameStore, numistaRpc, mintQueue });
+    res.json(result);
+  } catch (err) {
+    console.error(`[onramp] Webhook ${event.id} failed: ${err.message}`);
+    res.status(500).json({ error: 'Payment event could not be processed; Stripe may retry it' });
+  }
+});
+
 app.use(express.json());
 
 /* ------------------------------------------------------------------ */
@@ -45,12 +63,7 @@ function requireSessionUser(req, res) {
   const token = String(req.headers.authorization || '')
     .replace(/^Bearer\s+/i, '');
 
-  console.log('RAW AUTH:', req.headers.authorization);
-  console.log('TOKEN:', token);
-
   const user = userManager.verifyToken(token);
-
-  console.log('VERIFY RESULT:', user);
 
   if (!user) {
     res.status(401).json({ error: 'Valid sign-in required' });
@@ -91,6 +104,29 @@ function walletView(username) {
   };
 }
 
+function atomicUnitsToDecimal(value, decimals = 12) {
+  const raw = String(value == null ? '0' : value);
+  const negative = raw.startsWith('-');
+  const digits = (negative ? raw.slice(1) : raw).replace(/[^0-9]/g, '') || '0';
+  const padded = digits.padStart(decimals + 1, '0');
+  const whole = padded.slice(0, -decimals);
+  const fraction = padded.slice(-decimals).replace(/0+$/, '');
+  return (negative ? '-' : '') + whole + (fraction ? '.' + fraction : '');
+}
+
+function assetUnitsToNum(value) {
+  const digits = String(value == null ? '0' : value).replace(/[^0-9]/g, '') || '0';
+  const unitsPerNum = CONFIG.CHAIN.UNITS_PER_NUM;
+  if (!unitsPerNum) return '0';
+  const scaled = BigInt(digits);
+  const base = BigInt(unitsPerNum);
+  const whole = scaled / base;
+  const remainder = scaled % base;
+  if (remainder === 0n) return String(whole);
+  const fraction = (remainder * 1000000n / base).toString().padStart(6, '0').replace(/0+$/, '');
+  return `${whole}.${fraction}`;
+}
+
 const receiveAddressJobs = new Map();
 
 async function getOrCreateReceiveAddress(username) {
@@ -106,7 +142,7 @@ async function getOrCreateReceiveAddress(username) {
 
   if (!receiveAddressJobs.has(username)) {
     const job = numistaRpc
-      .createAccount(`Goldnumista @${username}`, userManager.getUser(username)?.password || '')
+      .createAccount(`Worldtycoon @${username}`, userManager.getUser(username)?.password || '')
       .then(result => {
         return userManager.setReceiveAddress(username, { accountIndex: result.accountIndex, addressIndex: 0, address: result.address });
       })
@@ -192,6 +228,33 @@ function upsertWalletUser({ username, password, role, receiveAddress, identityRe
 
 app.post('/api/auth/wallet-register', async (req, res) => {
   try {
+    const capabilities = await chainAdapter.capabilities();
+    if (capabilities.mode === 'simulate') {
+      const username = `sim_${crypto.randomBytes(8).toString('hex')}`;
+      const secretPassword = crypto.randomBytes(32).toString('hex');
+      const created = userManager.register({ username, password: secretPassword });
+      const user = userManager.getUser(username);
+      user.identityReceipt = {
+        ...makeIdentityReceipt({ username, secretPassword }),
+        simulated: true
+      };
+      userManager.save();
+      chainLedger.ensure(username);
+      return res.json({
+        success: true,
+        simulated: true,
+        address: null,
+        accountIndex: null,
+        username,
+        displayHandle: username,
+        txHash: null,
+        blockHeight: null,
+        secretPassword,
+        role: created.role,
+        token: created.token
+      });
+    }
+
     const created = await numistaRpc.registerWalletAddress();
     const role = created.accountIndex === 0 ? 'admin' : 'user';
     const identityReceipt = makeIdentityReceipt({
@@ -374,7 +437,7 @@ app.get('/api/auth/me', (req, res) => {
 });
 
 // ----------------------------------------------------
-// PLOTS & BUILDINGS API (Goldnumista UK Registry)
+// PLOTS & BUILDINGS API (Worldtycoon UK Registry)
 // ----------------------------------------------------
 
 // Compact public representation: owner is always a username, never a wallet address.
@@ -404,6 +467,8 @@ const toPublicPlot = (plot) => ({
   price: plot.price,
   building: plot.building ? { ...plot.building } : null,
   stockpile: { ...(plot.stockpile || {}) },
+  marketListing: plot.marketListing ? { ...plot.marketListing } : null,
+  marketSalePending: !!plot.marketSaleJobId,
   resourceDeposits: { ...(plot.resourceDeposits || {}) },
   structures: (plot.structures || []).map(structure => ({ ...structure })),
   pendingJobId: plot.pendingJobId || null,
@@ -491,9 +556,12 @@ app.get('/api/plots/:id', async (req, res) => {
   const plot = gameStore.getPlotById(req.params.id);
   if (!plot) return res.status(404).json({ error: 'Plot not found' });
   const job = gameStore.getJobForPlot(plot.id);
+  const viewer = userManager.verifyToken(String(req.headers.authorization || '').replace(/^Bearer\s+/i, ''));
+  const canViewJob = job && viewer &&
+    (String(job.username || '').toLowerCase() === viewer.username || userManager.isAdmin(viewer.username));
   res.json({
     plot: toPublicPlot(plot),
-    job: job ? mintQueue.publicJob(job) : null
+    job: canViewJob ? mintQueue.publicJob(job) : null
   });
 });
 
@@ -567,8 +635,44 @@ app.get('/api/soldiers', (req, res) => { const username = requireSessionUser(req
 app.post('/api/soldiers/:id/equip', (req, res) => { try { const username = requireSessionUser(req, res); if (!username) return; res.json({ success: true, ...gameStore.equipSoldier(username, req.params.id, req.body?.itemId) }); } catch (err) { res.status(400).json({ error: err.message }); } });
 app.post('/api/soldiers/:id/heal', (req, res) => { try { const username = requireSessionUser(req, res); if (!username) return; res.json({ success: true, ...gameStore.healSoldier(username, req.params.id) }); } catch (err) { res.status(400).json({ error: err.message }); } });
 app.post('/api/plots/:id/craft', (req, res) => { try { const username = requireSessionUser(req, res); if (!username) return; const out = gameStore.craftEquipment(req.params.id, username, req.body?.recipe); res.json({ success: true, ...out, plot: toPublicPlot(out.plot) }); } catch (err) { res.status(400).json({ error: err.message }); } });
+app.post('/api/plots/:id/metal-mint', (req, res) => {
+  try {
+    const username = requireSessionUser(req, res);
+    if (!username) return;
+    const result = gameStore.mintPlotMetal({
+      plotId: req.params.id,
+      username,
+      metal: req.body?.metal,
+      form: req.body?.form,
+      weightGrams: req.body?.weightGrams,
+      purity: req.body?.purity
+    });
+    res.json({ success: true, ...result, plot: toPublicPlot(gameStore.getPlotById(req.params.id)) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
 app.post('/api/army/create', (req, res) => { try { const username = requireSessionUser(req, res); if (!username) return; res.json({ success: true, army: gameStore.createArmy(username, req.body?.name, req.body?.soldierIds) }); } catch (err) { res.status(400).json({ error: err.message }); } });
-app.post('/api/army/:id/move', (req, res) => { try { const username = requireSessionUser(req, res); if (!username) return; res.json({ success: true, army: gameStore.moveArmy(username, req.params.id, req.body?.targetPlotId, !!req.body?.siege) }); } catch (err) { res.status(400).json({ error: err.message }); } });
+app.get('/api/army/:id/march-estimate', async (req, res) => {
+  try {
+    const username = requireSessionUser(req, res);
+    if (!username) return;
+    const estimate = await gameStore.getArmyMarchEstimate(username, req.params.id, req.query.targetPlotId);
+    res.json({ estimate });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+app.post('/api/army/:id/move', async (req, res) => {
+  try {
+    const username = requireSessionUser(req, res);
+    if (!username) return;
+    const result = await gameStore.moveArmy(username, req.params.id, req.body?.targetPlotId, !!req.body?.siege);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
 app.post('/api/plots/:id/repair', (req, res) => { try { const username = requireSessionUser(req, res); if (!username) return; const plot = gameStore.repairPlot(req.params.id, username); res.json({ success: true, plot: toPublicPlot(plot) }); } catch (err) { res.status(400).json({ error: err.message }); } });
 app.post('/api/plots/:id/fortify', (req, res) => { try { const username = requireSessionUser(req, res); if (!username) return; const plot = gameStore.fortifyPlot(req.params.id, username); res.json({ success: true, plot: toPublicPlot(plot) }); } catch (err) { res.status(400).json({ error: err.message }); } });
 
@@ -591,12 +695,13 @@ app.get('/api/castles', (req, res) => {
   res.json({ castles: gameStore.getConquerableCastles().map(toPublicPlot) });
 });
 
-app.post('/api/castles/:id/conquer', (req, res) => {
+app.post('/api/castles/:id/conquer', async (req, res) => {
   try {
     const username = requireSessionUser(req, res);
     if (!username) return;
     if (!req.body?.armyId) return res.status(400).json({ error: 'Choose an army to march on this castle' });
-    res.json({ success: true, army: gameStore.moveArmy(username, req.body.armyId, req.params.id, true), message: 'Army dispatched. The siege resolves on arrival.' });
+    const result = await gameStore.moveArmy(username, req.body.armyId, req.params.id, true);
+    res.json({ success: true, ...result, message: 'Silver payroll is submitted; the army marches after confirmation.' });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -629,6 +734,10 @@ app.post('/api/plots/:id/upgrade', (req, res) => {
 // MINT QUEUE / DEED METADATA
 // ----------------------------------------------------
 
+function canReadJob(job, username) {
+  return String(job?.username || '').toLowerCase() === username || userManager.isAdmin(username);
+}
+
 app.get('/api/jobs', (req, res) => {
   const username = requireSessionUser(req, res);
   if (!username) return;
@@ -639,13 +748,22 @@ app.get('/api/jobs', (req, res) => {
 });
 
 app.get('/api/jobs/:id', (req, res) => {
+  const username = requireSessionUser(req, res);
+  if (!username) return;
   const job = mintQueue.getJob(req.params.id);
-  if (!job) return res.status(404).json({ error: 'Job not found' });
+  if (!job || !canReadJob(job, username)) {
+    return res.status(404).json({ error: 'Job not found' });
+  }
   res.json({ job: mintQueue.publicJob(job) });
 });
 
 app.get('/api/plots/:id/job', (req, res) => {
+  const username = requireSessionUser(req, res);
+  if (!username) return;
   const job = gameStore.getJobForPlot(req.params.id);
+  if (job && !canReadJob(job, username)) {
+    return res.status(404).json({ error: 'Job not found' });
+  }
   res.json({ job: job ? mintQueue.publicJob(job) : null });
 });
 
@@ -664,6 +782,12 @@ app.get('/api/assets/:assetId', async (req, res) => {
   } catch (err) {
     res.status(503).json({ error: err.message });
   }
+});
+
+app.get('/api/assets/:assetId/metadata', (req, res) => {
+  const payload = readDeedMetadata(req.params.assetId);
+  if (!payload) return res.status(404).json({ error: 'Asset metadata not found' });
+  res.json(payload);
 });
 
 app.get('/api/assets/:assetId/balance/:username', async (req, res) => {
@@ -702,7 +826,7 @@ app.get('/api/battles/:assetId', async (req, res) => {
 // COIN MINTS (admin only)
 // ----------------------------------------------------
 
-app.post("/api/plots/:id/list", (req, res) => { try { const u = requireSessionUser(req, res); if (!u) return; const plot = gameStore.listPlotForSale(req.params.id, u, req.body?.priceNum); res.json({ success: true, plot: toPublicPlot(plot) }); } catch (e) { res.status(400).json({ error: e.message }); } }); app.post("/api/plots/:id/buy", (req, res) => { try { const u = requireSessionUser(req, res); if (!u) return; const out = gameStore.buyListedPlot(req.params.id, u); res.json({ success: true, ...out, plot: toPublicPlot(out.plot), wallet: walletView(u) }); } catch (e) { res.status(400).json({ error: e.message }); } }); app.post("/api/mint/predecimal", (req, res) => { try { const u = requireSessionUser(req, res); if (!u) return; const out = gameStore.mintPreDecimalAssortment({ amountNum: req.body?.amountNum, mintPlotId: req.body?.mintPlotId, username: u }); res.json({ success: true, ...out, wallet: walletView(u) }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post("/api/plots/:id/list", async (req, res) => { try { const u = requireSessionUser(req, res); if (!u) return; const plot = await gameStore.listPlotForSale(req.params.id, u, req.body?.priceNum); res.json({ success: true, plot: toPublicPlot(plot) }); } catch (e) { res.status(400).json({ error: e.message }); } }); app.post("/api/plots/:id/buy", async (req, res) => { try { const u = requireSessionUser(req, res); if (!u) return; const out = await gameStore.buyListedPlot(req.params.id, u); res.json({ success: true, ...out, plot: toPublicPlot(out.plot), wallet: walletView(u) }); } catch (e) { res.status(400).json({ error: e.message }); } }); app.post("/api/mint/predecimal", (req, res) => { try { const u = requireSessionUser(req, res); if (!u) return; const out = gameStore.mintPreDecimalAssortment({ amountNum: req.body?.amountNum, mintPlotId: req.body?.mintPlotId, username: u }); res.json({ success: true, ...out, wallet: walletView(u) }); } catch (e) { res.status(400).json({ error: e.message }); } });
 app.post('/api/mint/issue', (req, res) => {
   try {
     const { metal, weightGrams, purity, mintPlotId } = req.body;
@@ -792,7 +916,7 @@ app.get('/api/auctions', (req, res) => {
   });
 });
 
-app.post("/api/auctions/create", (req, res) => { try { const u = requireSessionUser(req, res); if (!u) return; const { category, assetRef, title, startingBid, buyoutPrice, durationHours } = req.body || {}; const auc = gameStore.createUniversalAuction({ seller: u, category, assetRef, title, startingBid, buyoutPrice, durationHours }); res.json({ success: true, auction: auc }); } catch (e) { res.status(400).json({ error: e.message }); } }); app.post("/api/auctions/:id/buyout", async (req, res) => { try { const u = requireSessionUser(req, res); if (!u) return; const auc = gameStore.buyoutAuction(req.params.id, u); if (auc.category === "Tradeable @Handle" && auc.assetRef) { const recv = await getOrCreateReceiveAddress(u).catch(() => null); const usr = userManager.getUser(u); if (recv?.accountIndex > 0) await numistaRpc.claimOnChainUsername(recv.accountIndex, auc.assetRef, usr?.password || "").catch(() => {}); } res.json({ success: true, auction: auc, wallet: walletView(u) }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post("/api/auctions/create", async (req, res) => { try { const u = requireSessionUser(req, res); if (!u) return; const { category, assetRef, title, startingBid, buyoutPrice, durationHours } = req.body || {}; const auc = await gameStore.createUniversalAuction({ seller: u, category, assetRef, title, startingBid, buyoutPrice, durationHours }); res.json({ success: true, auction: auc }); } catch (e) { res.status(400).json({ error: e.message }); } }); app.post("/api/auctions/:id/buyout", async (req, res) => { try { const u = requireSessionUser(req, res); if (!u) return; const auc = await gameStore.buyoutAuction(req.params.id, u); res.json({ success: true, auction: auc, wallet: walletView(u) }); } catch (e) { res.status(400).json({ error: e.message }); } });
 app.post('/api/auctions/:id/bid', (req, res) => {
   try {
     const { amount } = req.body;
@@ -959,7 +1083,7 @@ app.get('/api/explorer/status', async (req, res) => {
       lastBlockTimestamp: header?.timestamp ? header.timestamp * 1000 : null,
       txPoolCount: pool?.txs_total ?? daemonInfo.tx_pool_size ?? 0,
       peerCount: peerList.length || daemonInfo.incoming_connections_count || 0,
-      nettype: daemonInfo.nettype || 'numista-testnet'
+      nettype: daemonInfo.nettype || null
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1051,13 +1175,75 @@ app.post('/api/onramp/quote', (req, res) => {
   res.json(cryptoOnramp.calculateQuote({ currency, fiatAmount, numAmount }));
 });
 
-app.post('/api/onramp/order', (req, res) => {
-  res.status(503).json({ error: 'NUM purchases are unavailable until a verified payment provider is configured' });
+app.post('/api/onramp/order', async (req, res) => {
+  try {
+    const username = requireSessionUser(req, res);
+    if (!username) return;
+    if (!stripeOnramp.mode) {
+      return res.status(503).json({ error: stripeOnramp.getUnavailableReason() });
+    }
+    if (stripeOnramp.mode === 'live') {
+      const capabilities = await chainAdapter.capabilities();
+      const daemonNetwork = String(capabilities.node?.nettype || numistaRpc.syncStatus.nettype || '');
+      if (capabilities.mode !== 'live' || !capabilities.ready ||
+          !/mainnet/i.test(daemonNetwork) || numistaRpc.syncStatus.synchronized === false) {
+        return res.status(503).json({ error: 'Live checkout is blocked until a synchronized Numista mainnet daemon is verified' });
+      }
+    }
+    const destination = String(req.body?.destination || '');
+    const walletAddress = String(req.body?.walletAddress || '').trim();
+    let gameTreasuryAvailable = 0;
+    let nativeTreasuryAvailable = 0;
+    if (destination === 'game_balance') {
+      const units = Number(await chainAdapter.getAssetBalance(NUM_ASSET_ID, CONFIG.CHAIN.TREASURY_USERNAME));
+      gameTreasuryAvailable = units / CONFIG.CHAIN.UNITS_PER_NUM;
+    }
+    if (destination === 'native_wallet') {
+      if (CONFIG.NUMISTA.NETTYPE !== 'numista-mainnet' || CONFIG.CHAIN.MODE !== 'live') {
+        return res.status(503).json({ error: 'Native wallet delivery is unavailable until mainnet is verified' });
+      }
+      const validation = await numistaRpc.validateAddress(walletAddress);
+      if (!validation?.valid) return res.status(400).json({ error: 'Enter a valid mainnet NUM wallet address' });
+      const walletBalance = await numistaRpc.getWalletBalance(0);
+      if (walletBalance.source === 'unavailable') {
+        return res.status(503).json({ error: 'Mainnet treasury wallet is unavailable' });
+      }
+      nativeTreasuryAvailable = Number(walletBalance.unlockedBalance) || 0;
+    }
+    const result = await stripeOnramp.createCheckout({
+      username,
+      amountGBP: req.body?.amount,
+      destination,
+      walletAddress: destination === 'native_wallet' ? walletAddress : null,
+      gameTreasuryAvailable,
+      nativeTreasuryAvailable
+    });
+    res.json(result);
+  } catch (err) {
+    const message = err.message || 'Could not create checkout';
+    const status = /Stripe|checkout|secret|HTTPS|public base URL|temporarily unavailable/i.test(message) ? 503 : 400;
+    res.status(status).json({ error: message });
+  }
 });
 
 app.post('/api/onramp/complete', (req, res) => {
-  res.status(503).json({ error: 'NUM cannot be credited without verified payment settlement' });
+  res.status(410).json({ error: 'Payment completion is handled only by Stripe’s signed webhook' });
 });
+
+app.get('/api/onramp/orders/:sessionId', async (req, res) => {
+  const username = requireSessionUser(req, res);
+  if (!username) return;
+  const order = stripeOnramp.getOrderBySession(req.params.sessionId);
+  if (!order || order.username !== username) return res.status(404).json({ error: 'Payment order not found' });
+  await stripeOnramp.reconcile({ gameStore, numistaRpc, mintQueue });
+  res.json({ order: stripeOnramp.publicOrder(order) });
+});
+
+const onrampReconcileTimer = setInterval(() => {
+  stripeOnramp.reconcile({ gameStore, numistaRpc, mintQueue })
+    .catch(err => console.error(`[onramp] Reconciliation failed: ${err.message}`));
+}, 15000);
+onrampReconcileTimer.unref?.();
 
 // ----------------------------------------------------
 // CHAIN CAPABILITIES & JOB TELEMETRY
@@ -1086,6 +1272,107 @@ app.post('/api/dev/sim/mine', async (req, res) => {
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
+});
+
+app.post('/api/dev/sim/deposit-failure', async (req, res) => {
+  if (!DEV_RPC_ENABLED) return res.status(404).json({ error: 'Not found' });
+  const username = requireAdmin(req, res);
+  if (!username) return;
+  try {
+    const amount = +Number(req.body?.amount || 1).toFixed(4);
+    if (!(amount > 0)) return res.status(400).json({ error: 'Deposit amount must be positive' });
+    const balanceBeforeUnits = Number(await chainAdapter.getAssetBalance(NUM_ASSET_ID, username));
+    const asset = await chainAdapter.getAsset(NUM_ASSET_ID);
+    if (!asset) return res.status(503).json({ error: 'Simulated currency asset is unavailable' });
+    await chainAdapter.injectFailure(1);
+    chainLedger.addPending(username, amount);
+    const job = mintQueue.enqueue({
+      type: 'deposit',
+      username,
+      assetId: NUM_ASSET_ID,
+      snapshot: { amount, balanceBeforeUnits, nativeTxHash: 'simulated-native-deposit' },
+      meta: { name: 'Simulated native deposit recovery test' },
+      steps: [{
+        key: 'mint',
+        label: `Convert ${amount} native NUM to in-game NUM`,
+        operation: {
+          kind: 'mint',
+          accountIndex: 0,
+          assetId: NUM_ASSET_ID,
+          assetType: CURRENCY_ASSET_TYPE,
+          recipient: username,
+          amountUnits: toUnits(amount)
+        }
+      }]
+    });
+    res.json({ job: mintQueue.publicJob(job) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/dev/sim/deposit', async (req, res) => {
+  if (!DEV_RPC_ENABLED) return res.status(404).json({ error: 'Not found' });
+  const admin = requireAdmin(req, res);
+  if (!admin) return;
+  try {
+    const username = String(req.body?.recipientUsername || admin).trim().toLowerCase();
+    const amount = Number(req.body?.amount);
+    if (!userManager.getUser(username)) return res.status(404).json({ error: 'Deposit recipient not found' });
+    if (!Number.isFinite(amount) || amount <= 0 || amount > 1_000_000) {
+      return res.status(400).json({ error: 'Deposit amount must be between 0 and 1,000,000 NUM' });
+    }
+    const balanceBeforeUnits = Number(await chainAdapter.getAssetBalance(NUM_ASSET_ID, username));
+    if (!await chainAdapter.getAsset(NUM_ASSET_ID)) {
+      return res.status(503).json({ error: 'Simulated currency asset is unavailable' });
+    }
+
+    const job = mintQueue.enqueue({
+      type: 'deposit',
+      username,
+      assetId: NUM_ASSET_ID,
+      snapshot: { amount, balanceBeforeUnits, nativeTxHash: 'simulated-native-deposit' },
+      meta: { name: 'Simulated native deposit' },
+      steps: [{
+        key: 'mint',
+        label: `Convert ${amount} native NUM to in-game NUM`,
+        operation: {
+          kind: 'mint',
+          accountIndex: 0,
+          assetId: NUM_ASSET_ID,
+          assetType: CURRENCY_ASSET_TYPE,
+          recipient: username,
+          amountUnits: toUnits(amount)
+        }
+      }]
+    });
+    chainLedger.addPending(username, amount);
+    res.json({ job: mintQueue.publicJob(job), simulated: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/dev/sim/tick', (req, res) => {
+  if (!DEV_RPC_ENABLED) return res.status(404).json({ error: 'Not found' });
+  if (!requireAdmin(req, res)) return;
+  const ticks = Number(req.body?.ticks);
+  if (!Number.isInteger(ticks) || ticks < 1 || ticks > 1000) {
+    return res.status(400).json({ error: 'Ticks must be an integer from 1 to 1000' });
+  }
+  for (let i = 0; i < ticks; i++) gameStore.tickSimulation();
+  res.json({ ticks });
+});
+
+app.post('/api/dev/sim/expire-auction/:id', (req, res) => {
+  if (!DEV_RPC_ENABLED) return res.status(404).json({ error: 'Not found' });
+  if (!requireAdmin(req, res)) return;
+  const auction = gameStore.auctions.find(item => item.id === req.params.id);
+  if (!auction) return res.status(404).json({ error: 'Auction not found' });
+  auction.endsAt = new Date(Date.now() - 1000).toISOString();
+  gameStore.sweepExpiredAuctions();
+  const job = auction.settlementJobId ? mintQueue.getJob(auction.settlementJobId) : null;
+  res.json({ auction, job: job ? mintQueue.publicJob(job) : null });
 });
 
 app.get('/api/network/capabilities', async (req, res) => {
@@ -1433,6 +1720,7 @@ async function autoCreditNativeDeposits(username, receiveAddress, receiveInfo) {
   if (Number(receiveInfo.unlockedBalance || 0) < +(nativeAmount + 0.01).toFixed(4)) return null;
 
   const jobPromise = (async () => {
+    const balanceBeforeUnits = Number(await chainAdapter.getAssetBalance(NUM_ASSET_ID, username));
     const vaultInfo = await numistaRpc.getWalletAddress(0, 0);
     const nativeTx = await numistaRpc.sendTransfer({
       toAddress: vaultInfo.address,
@@ -1490,6 +1778,7 @@ async function autoCreditNativeDeposits(username, receiveAddress, receiveInfo) {
         assetId: NUM_ASSET_ID,
         snapshot: {
           amount: creditAmount,
+          balanceBeforeUnits,
           fee,
           nativeTxHash: nativeTx.txHash,
           depositTxHash: nativeTx.txHash,
@@ -1533,7 +1822,8 @@ app.post('/api/wallet/convert-to-game', async (req, res) => {
       });
     }
 
-    // Send 1:1 backing + 0.05 NUM pure profit fee from player's native account to townforge (account 0)
+    const balanceBeforeUnits = Number(await chainAdapter.getAssetBalance(NUM_ASSET_ID, username));
+    // Send 1:1 backing plus the Worldtycoon conversion fee from the player's native account.
     const vaultInfo = await numistaRpc.getWalletAddress(0, 0);
     const nativeTx = await numistaRpc.sendTransfer({
       toAddress: vaultInfo.address,
@@ -1590,7 +1880,7 @@ app.post('/api/wallet/convert-to-game', async (req, res) => {
       type: 'deposit',
       username,
       assetId: NUM_ASSET_ID,
-      snapshot: { amount, fee, nativeTxHash: nativeTx.txHash, depositTxHashes: [nativeTx.txHash] },
+      snapshot: { amount, fee, balanceBeforeUnits, nativeTxHash: nativeTx.txHash, depositTxHash: nativeTx.txHash, depositTxHashes: [nativeTx.txHash] },
       meta: { name: `Convert ${amount} native NUM ? In-Game NUM` },
       steps
     });
@@ -1641,6 +1931,148 @@ app.get('/api/wallet/receive', async (req, res) => {
   }
 });
 
+app.get('/api/wallet/portfolio', async (req, res) => {
+  const username = requireSessionUser(req, res);
+  if (!username) return;
+
+  const capabilities = await chainAdapter.capabilities();
+  const height = Number(capabilities.chainHeight || 0);
+  const network = capabilities.mode === 'simulate' ? 'simulated' : CONFIG.NUMISTA.NETTYPE;
+  const launchRate = Number.isFinite(CONFIG.ECONOMY.LAUNCH_REFERENCE_GBP_PER_NUM)
+    ? Math.max(0, CONFIG.ECONOMY.LAUNCH_REFERENCE_GBP_PER_NUM)
+    : 0.25;
+
+  try {
+    let assetUnits = '0';
+    let assetMetadata = null;
+
+    if (capabilities.mode === 'simulate') {
+      const units = await chainAdapter.getAssetBalance(NUM_ASSET_ID, username);
+      assetUnits = String(units == null ? 0 : units);
+    } else if (capabilities.mode === 'live') {
+      if (!CONFIG.CHAIN.CURRENCY_ASSET_ID) {
+        return res.status(503).json({
+          network,
+          height,
+          username,
+          error: 'NUM asset identity is unavailable: NUMISTA_CURRENCY_ASSET_ID is not configured',
+          gameNum: { available: false },
+          nativeNum: { available: false },
+          nativeSupply: { available: false },
+          asOf: new Date().toISOString()
+        });
+      }
+      assetUnits = String(await numistaRpc.getAssetBalance(NUM_ASSET_ID, username));
+      assetMetadata = await numistaRpc.getAsset(NUM_ASSET_ID);
+    } else {
+      return res.status(503).json({
+        network,
+        height,
+        username,
+        error: 'Numista chain RPC is unavailable',
+        gameNum: { available: false },
+        nativeNum: { available: false },
+        nativeSupply: { available: false },
+        asOf: new Date().toISOString()
+      });
+    }
+
+    const gameNum = assetUnitsToNum(assetUnits);
+    let nativeNum = { available: false, error: 'Native wallet RPC is unavailable in simulated mode' };
+    let nativeSupply = { available: false, kind: 'not_applicable', error: 'Native issuance is unavailable in simulated mode' };
+
+    if (capabilities.mode === 'live') {
+      const receiveAddress = await getOrCreateReceiveAddress(username);
+      const receiveInfo = await numistaRpc.getSubaddressReceiveInfo(
+        receiveAddress.accountIndex,
+        receiveAddress.addressIndex
+      );
+      const balanceAtomic = String(receiveInfo.balanceAtomic || '0');
+      const unlockedAtomic = String(receiveInfo.unlockedAtomic || '0');
+      const pendingAtomic = String(receiveInfo.pendingAtomic || '0');
+
+      nativeNum = {
+        available: true,
+        balanceAtomic,
+        unlockedAtomic,
+        pendingAtomic,
+        num: atomicUnitsToDecimal(balanceAtomic),
+        unlockedNum: atomicUnitsToDecimal(unlockedAtomic),
+        pendingNum: atomicUnitsToDecimal(pendingAtomic)
+      };
+
+      const [daemonInfo, minerData] = await Promise.all([
+        numistaRpc.getDaemonInfoRaw(),
+        numistaRpc.getMinerData()
+      ]);
+      const liveHeight = Number(daemonInfo?.height ?? minerData?.height ?? (height || 0));
+      const generatedAtomic = String(
+        minerData?.already_generated_coins ??
+        minerData?.miner_data?.already_generated_coins ??
+        '0'
+      );
+      nativeSupply = {
+        available: true,
+        generatedAtomic,
+        generatedNum: atomicUnitsToDecimal(generatedAtomic),
+        kind: 'cumulative_generated',
+        height: liveHeight
+      };
+      if (liveHeight) return res.json({
+        network,
+        height: liveHeight,
+        username,
+        gameNum: {
+          available: true,
+          assetUnits,
+          assetUnitsPerNum: CONFIG.CHAIN.UNITS_PER_NUM,
+          num: gameNum,
+          assetMetadata: assetMetadata || null
+        },
+        nativeNum,
+        nativeSupply,
+        launchReferenceGbpPerNum: launchRate.toFixed(2),
+        estimatedReferenceValueGbp: {
+          gameNum: (Number(gameNum) * launchRate).toFixed(2),
+          nativeNum: (Number(nativeNum.num) * launchRate).toFixed(2)
+        },
+        asOf: new Date().toISOString()
+      });
+    }
+
+    return res.json({
+      network,
+      height,
+      username,
+      gameNum: {
+        available: true,
+        assetUnits,
+        assetUnitsPerNum: CONFIG.CHAIN.UNITS_PER_NUM,
+        num: gameNum
+      },
+      nativeNum,
+      nativeSupply,
+      launchReferenceGbpPerNum: launchRate.toFixed(2),
+      estimatedReferenceValueGbp: {
+        gameNum: (Number(gameNum) * launchRate).toFixed(2),
+        nativeNum: null
+      },
+      asOf: new Date().toISOString()
+    });
+  } catch (err) {
+    res.status(503).json({
+      network,
+      height,
+      username,
+      error: `Numista RPC unavailable: ${err.message}`,
+      gameNum: { available: false, error: 'Game NUM chain balance unavailable' },
+      nativeNum: { available: false, error: 'Native NUM wallet balance unavailable' },
+      nativeSupply: { available: false, kind: 'cumulative_generated', error: 'Native supply unavailable' },
+      asOf: new Date().toISOString()
+    });
+  }
+});
+
 // Username-to-username transfer, settled on chain.
 app.post('/api/wallet/transfer', (req, res) => {
   try {
@@ -1662,6 +2094,68 @@ app.post('/api/network/set-node', (req, res) => {
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
+});
+
+app.get('/api/admin/summary', async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+
+  const ledger = chainLedger.adminSummary();
+  const purchases = stripeOnramp.adminSummary();
+  const capabilities = await chainAdapter.capabilities();
+  const launchRate = Math.max(0, Number(CONFIG.ECONOMY.LAUNCH_REFERENCE_GBP_PER_NUM) || 0.25);
+  let nativeGeneratedNum = null;
+  let nativeGeneratedAtomic = null;
+  let height = Number(capabilities.chainHeight || 0);
+
+  if (capabilities.mode === 'live') {
+    try {
+      const [minerData, daemonInfo] = await Promise.all([
+        numistaRpc.getMinerData(),
+        numistaRpc.getDaemonInfoRaw()
+      ]);
+      nativeGeneratedAtomic = String(
+        minerData?.already_generated_coins ??
+        minerData?.miner_data?.already_generated_coins ??
+        '0'
+      );
+      nativeGeneratedNum = Number(atomicUnitsToDecimal(nativeGeneratedAtomic));
+      height = Number(daemonInfo?.height ?? minerData?.height ?? (height || 0));
+    } catch (err) {
+      nativeGeneratedNum = null;
+      nativeGeneratedAtomic = null;
+    }
+  }
+
+  res.json({
+    network: capabilities.mode === 'simulate'
+      ? 'simulated'
+      : CONFIG.NUMISTA.NETTYPE,
+    height,
+    asOf: new Date().toISOString(),
+    launchReferenceGbpPerNum: launchRate.toFixed(2),
+    inGameSupply: {
+      totalNum: ledger.totalInGame,
+      minedNum: ledger.minedInGame,
+      launchReferenceGbp: +(ledger.totalInGame * launchRate).toFixed(2),
+      accountCount: ledger.accountCount,
+      transactionCount: ledger.transactionCount
+    },
+    nativeSupply: {
+      generatedNum: nativeGeneratedNum,
+      generatedAtomic: nativeGeneratedAtomic,
+      kind: 'cumulative_generated',
+      launchReferenceGbp: nativeGeneratedNum == null
+        ? null
+        : +(nativeGeneratedNum * launchRate).toFixed(2),
+      available: nativeGeneratedNum != null
+    },
+    purchases: {
+      paidOrderCount: purchases.paidOrderCount,
+      orderCount: purchases.orderCount,
+      numPurchased: purchases.numPurchased,
+      gbpPaid: +purchases.gbpPaid.toFixed(2)
+    }
+  });
 });
 
 app.get('/api/network', async (req, res) => {
@@ -1709,7 +2203,16 @@ app.get('/api/network', async (req, res) => {
 
 // Serve frontend static files from dist
 const distPath = path.resolve(__dirname, '../dist');
+const publicPath = path.resolve(__dirname, '../public');
+app.use('/assets', express.static(path.join(publicPath, 'assets'), {
+  etag: true,
+  maxAge: '1h'
+}));
 app.use(express.static(distPath));
+
+app.use('/assets', (req, res) => {
+  res.status(404).send('Asset not found');
+});
 
 app.get('*', (req, res) => {
   res.sendFile(path.join(distPath, 'index.html'));
@@ -1887,7 +2390,7 @@ async function boot() {
   const nativeReconcileTimer = setInterval(reconcilePlayerNativeConversions, CONFIG.CHAIN.RECONCILE_MS);
   if (nativeReconcileTimer.unref) nativeReconcileTimer.unref();
 app.listen(CONFIG.PORT, () => {
-    console.log(`[Goldnumista] Server active on http://localhost:${CONFIG.PORT}`);
+    console.log(`[Worldtycoon] Server active on http://localhost:${CONFIG.PORT}`);
   });
 }
 

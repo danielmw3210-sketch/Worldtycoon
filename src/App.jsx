@@ -20,10 +20,17 @@ import CastlesModal from './components/CastlesModal';
 import CoinCollectionModal from './components/CoinCollectionModal';
 import ArmyModal from './components/ArmyModal';
 import SoldierModal from './components/SoldierModal';
+import ResourceManagementModal from './components/ResourceManagementModal';
+import AdminModal from './components/AdminModal';
 import TransactionToast from './components/TransactionToast';
 
 export default function App() {
   const { user, activeModal, setActiveModal, loading } = useGame();
+
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (user && params.has('onramp')) setActiveModal('buy_crypto');
+  }, [user, setActiveModal]);
 
   if (loading) {
     return (
@@ -32,7 +39,7 @@ export default function App() {
           <div className="w-8 h-8 rounded-lg bg-[#0b0e14]"></div>
         </div>
         <div className="mt-4 font-mono text-sm tracking-widest uppercase font-bold text-orange-400">
-          Loading Goldnumista UK Land Registry...
+          Loading Worldtycoon...
         </div>
         <div className="text-xs text-slate-500 font-mono mt-1">Connecting to Numista Monero RPC Daemon</div>
       </div>
@@ -45,7 +52,7 @@ export default function App() {
       <Navbar />
 
       {/* Main Interactive Map & Gaming Floor */}
-      <main className="flex-1 relative">
+      <main className="flex-1 relative min-h-[480px]">
         <MapView />
       </main>
 
@@ -72,6 +79,8 @@ export default function App() {
       {activeModal === 'coins' && <CoinCollectionModal />}
       {activeModal === 'army' && <ArmyModal />}
       {activeModal === 'soldiers' && <SoldierModal />}
+      {activeModal === 'resources' && <ResourceManagementModal />}
+      {activeModal === 'admin' && <AdminModal />}
 
       {/* Real-time Toasts */}
       <TransactionToast />

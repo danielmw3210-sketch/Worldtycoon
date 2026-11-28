@@ -1,5 +1,5 @@
 [Unit]
-Description=Numista Wallet RPC Server (Townforge Treasury & Issuer Custody)
+Description=Numista Wallet RPC Server (Worldtycoon Treasury & Issuer Custody)
 After=network.target numistad.service
 Requires=numistad.service
 

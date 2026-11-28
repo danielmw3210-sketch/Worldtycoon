@@ -22,6 +22,12 @@ function loadLocalEnvFile() {
 
 loadLocalEnvFile();
 
+const NUMISTA_NETWORK = String(process.env.NUMISTA_NETWORK || 'testnet').trim().toLowerCase();
+if (!['mainnet', 'testnet'].includes(NUMISTA_NETWORK)) {
+  throw new Error('NUMISTA_NETWORK must be either "mainnet" or "testnet"');
+}
+const IS_MAINNET = NUMISTA_NETWORK === 'mainnet';
+
 export const CONFIG = {
   PORT: process.env.PORT || 3001,
   NUMISTA: {
@@ -30,10 +36,10 @@ export const CONFIG = {
     DECIMALS: 12, // Atomic units like Monero piconero (1 NUM = 10^12 atomic units)
     GAME_FUND_BLOCK_REWARD_NUM: Number(process.env.NUMISTA_BLOCK_REWARD || 0.00005),
     BLOCK_TIME_SECS: 120,
-    DAEMON_RPC_URL: process.env.NUMISTA_DAEMON_RPC || "http://127.0.0.1:48081",
+    DAEMON_RPC_URL: process.env.NUMISTA_DAEMON_RPC || (IS_MAINNET ? "" : "http://127.0.0.1:48081"),
     // 48082 is the daemon ZMQ port on Numista testnet, NOT wallet RPC.
     // Wallet RPC uses an operator-chosen port (48083 by default).
-    WALLET_RPC_URL: process.env.NUMISTA_WALLET_RPC || "http://127.0.0.1:48083",
+    WALLET_RPC_URL: process.env.NUMISTA_WALLET_RPC || (IS_MAINNET ? "" : "http://127.0.0.1:48083"),
     WALLET_RPC_LOGIN_FILE: process.env.NUMISTA_WALLET_LOGIN_FILE || "",
     // Numista testnet address prefix is 153 (addresses begin with "S").
     // Do not hardcode foreign addresses here; wallets are created on the node.
@@ -42,7 +48,7 @@ export const CONFIG = {
     CROWN_ESTATE_WALLET_RPC_URL: process.env.NUMISTA_CROWN_ESTATE_WALLET_RPC || "",
     CROWN_ESTATE_WALLET_RPC_USER: process.env.NUMISTA_CROWN_ESTATE_WALLET_RPC_USER || "",
     CROWN_ESTATE_WALLET_RPC_PASS: process.env.NUMISTA_CROWN_ESTATE_WALLET_RPC_PASS || "",
-    NETTYPE: "numista-testnet"
+    NETTYPE: IS_MAINNET ? 'numista-mainnet' : 'numista-testnet'
   },
 
   // UK land grid: 50 columns x 70 rows = 3,500 square plots
@@ -82,14 +88,14 @@ export const CONFIG = {
     // 1 trillion NUM expressed in asset units (1e15, below 2^53).
     MAX_SUPPLY_UNITS: 1_000_000_000_000 * 1000,
     CURRENCY_ASSET_ID: process.env.NUMISTA_CURRENCY_ASSET_ID || "",
-    ISSUER_PUBLIC_KEY: process.env.NUMISTA_ISSUER_PUBLIC_KEY || "3f50a0c86240ef57be837c5c3e6ca4f669db3b13e7954700337b0613bdd08b04",
-    ISSUER_WALLET_FILE: process.env.NUMISTA_ISSUER_WALLET || "goldnumista",
+    ISSUER_PUBLIC_KEY: process.env.NUMISTA_ISSUER_PUBLIC_KEY || (IS_MAINNET ? "" : "3f50a0c86240ef57be837c5c3e6ca4f669db3b13e7954700337b0613bdd08b04"),
+    ISSUER_WALLET_FILE: process.env.NUMISTA_ISSUER_WALLET || (IS_MAINNET ? "" : "goldnumista"),
     ISSUER_WALLET_PASSWORD: process.env.NUMISTA_ISSUER_WALLET_PASSWORD || "",
     // Native coin address that receives block rewards and backs the game
     // treasury. From the node's miner wallet document.
     TREASURY_ADDRESS: process.env.NUMISTA_TREASURY_ADDRESS ||
-      "SbMqyiLDAv6QtTCX1n1JJnLuZL7j3RxKKcdvdTA1F15HeygxXzf982K2CdYGNc7J9pL9ZX71E8byHLFuhSH6TDBx1pNJ46GYn",
-    TREASURY_USERNAME: process.env.NUMISTA_TREASURY_USER || "crown_treasury"
+      (IS_MAINNET ? "" : "SbMqyiLDAv6QtTCX1n1JJnLuZL7j3RxKKcdvdTA1F15HeygxXzf982K2CdYGNc7J9pL9ZX71E8byHLFuhSH6TDBx1pNJ46GYn"),
+    TREASURY_USERNAME: process.env.NUMISTA_TREASURY_USER || (IS_MAINNET ? "" : "crown_treasury")
   },
 
   SIM: {
@@ -99,11 +105,13 @@ export const CONFIG = {
     FILE: process.env.NUMISTA_SIM_FILE || "",
     GENESIS_BALANCES: {
       danie: Number(process.env.NUMISTA_SIM_DANIE || 150),
-      mercantile: Number(process.env.NUMISTA_SIM_MERCANTILE || 250)
+      mercantile: Number(process.env.NUMISTA_SIM_MERCANTILE || 250),
+      crown_treasury: Number(process.env.NUMISTA_SIM_TREASURY || 0)
     }
   },
 
   ECONOMY: {
+    LAUNCH_REFERENCE_GBP_PER_NUM: Number(process.env.NUMISTA_LAUNCH_REFERENCE_GBP_PER_NUM || 0.25),
     PLOT_CLAIM_PRICE_NUM: 50, // Base price = rarity tier 1 (Common)
     TAX_RATE_TOWN_HALL: 0.035,
     SECONDARY_MARKET_TAX_RATE: 0.05,
@@ -117,14 +125,14 @@ export const CONFIG = {
     MINING_SHARE_REWARD: 0.05, // NUM rewarded per accepted share (fallback under PPS)
     MINING_PAYOUT_THRESHOLD: 0.25, // mining rewards settle on-chain once they reach 1 NUM
     MINING_DIFFICULTY: 16017, // Matches user's live daemon difficulty
-    EXCHANGE_RATE_GBP: 0.45,
+    EXCHANGE_RATE_GBP: 0.025,
     EXCHANGE_RATE_XMR: 0.0035,
     EXCHANGE_RATE_USDT: 0.58,
 
     // Property economy
     INCOME_PAYBACK_HOURS: 1440, // price / 240 = base income per hour
     INCOME_ACCRUAL_CAP_HOURS: 24, // uncollected income caps at 24h
-    UPGRADE_MAX_LEVEL: 5,
+    UPGRADE_MAX_LEVEL: 10,
     UPGRADE_COST_RATE: 0.4, // cost per level = 40% of plot price * current level
     UPGRADE_INCOME_STEP: 1.25, // income multiplier per level
     MINT_FEE_PER_GRAM: {

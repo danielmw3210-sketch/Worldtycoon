@@ -96,7 +96,7 @@ export default function StockBrokerModal() {
             <div>
               <div className="flex items-center space-x-2">
                 <span className="text-[10px] font-mono uppercase font-bold text-cyan-400 bg-cyan-950 border border-cyan-700/60 px-2 py-0.5 rounded">
-                  Goldnumista Equities Exchange
+                  Worldtycoon Equities Exchange
                 </span>
                 <span className="text-xs text-slate-400 font-mono">Canary Wharf & Albert Dock Bourse</span>
               </div>

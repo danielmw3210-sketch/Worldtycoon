@@ -13,15 +13,16 @@ import { fileURLToPath } from 'url';
 import { CONFIG } from '../config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const USERS_FILE = path.join(__dirname, 'users.json');
+const USERS_FILE = process.env.NUMISTA_USERS_FILE || path.join(__dirname, 'users.json');
 
 const USERNAME_RE = /^[A-Za-z0-9_.-]{3,32}$/;
+const configuredSessionSecret = process.env.NUMISTA_SESSION_SECRET;
 
-function sessionSecret() {
-  if (process.env.NUMISTA_SESSION_SECRET) return process.env.NUMISTA_SESSION_SECRET;
-  // Stable across restarts for a single machine; override in production.
-  return 'townforge-numista-local-session-secret';
+if (process.env.NODE_ENV === 'production' && !configuredSessionSecret) {
+  throw new Error('NUMISTA_SESSION_SECRET must be set in production');
 }
+
+const SESSION_SECRET = configuredSessionSecret || crypto.randomBytes(32).toString('hex');
 
 class UserManager {
   constructor() {
@@ -178,7 +179,7 @@ class UserManager {
       u: String(username).toLowerCase(),
       t: Date.now()
     })).toString('base64url');
-    const sig = crypto.createHmac('sha256', sessionSecret()).update(payload).digest('base64url');
+    const sig = crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest('base64url');
     return `${payload}.${sig}`;
   }
 
@@ -186,7 +187,7 @@ class UserManager {
     try {
       const [payload, sig] = String(token || '').split('.');
       if (!payload || !sig) return null;
-      const expected = crypto.createHmac('sha256', sessionSecret()).update(payload).digest('base64url');
+      const expected = crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest('base64url');
       const a = Buffer.from(sig);
       const b = Buffer.from(expected);
       if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;

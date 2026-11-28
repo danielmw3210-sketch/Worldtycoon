@@ -1,9 +1,9 @@
 @echo off
-title Townforge Numista - Frontend Dev Server
+title Worldtycoon - Frontend Dev Server
 cd /d "%~dp0"
 
 echo ============================================
-echo   TOWNFORGE NUMISTA - Frontend Dev Server
+echo   WORLDTYCOON - Frontend Dev Server
 echo ============================================
 echo.
 

@@ -1,7 +1,18 @@
 import { numistaRpc } from '../server/numista/rpc.js';
 
-const BASE = (process.env.BASE_URL || 'httpshttps://onrender.com').replace(/\/$/, '');
-const PW = process.env.TEST_PW || 'D4rkness10@@@@';
+function requiredEnv(name) {
+  const value = process.env[name]?.trim();
+  if (!value) throw new Error(`${name} must be set before running this end-to-end test`);
+  return value;
+}
+
+const BASE = requiredEnv('BASE_URL').replace(/\/$/, '');
+const baseUrl = new URL(BASE);
+if (!['http:', 'https:'].includes(baseUrl.protocol)) {
+  throw new Error('BASE_URL must use http or https');
+}
+const TEST_PW = requiredEnv('TEST_PW');
+const ADMIN_PW = requiredEnv('NUMISTA_ADMIN_PASSWORD');
 const VAULT_ADDR = 'SbMqyiLDAv6QtTCX1n1JJnLuZL7j3RxKKcdvdTA1F15HeygxXzf982K2CdYGNc7J9pL9ZX71E8byHLFuhSH6TDBx1pNJ46GYn';
 const PLAYER_ADDR = 'UGN5xgg5afC1EwvVHC3pbiDMBQadaihEeQibHKyU6pQVT34YT2tW4cThugPTpFYP6LM3KdCmy1LGTKjtRTv3FMf12e5eQ7uLm';
 
@@ -26,12 +37,12 @@ async function api(path, { method = 'GET', token, body } = {}) {
 }
 
 async function run() {
-  console.log(`\n=== Goldnumista End-to-End Blockchain Test Suite (${BASE}) ===\n`);
+  console.log(`\n=== Worldtycoon End-to-End Blockchain Test Suite (${BASE}) ===\n`);
 
   // 0. Ensure Account #0 & Account #1 have valid _makeVerifier labels on local wallet RPC
   try {
-    const accts = await numistaRpc._walletRpc('get_accounts', {}); while ((accts.subaddress_accounts || []).length < 2) { await numistaRpc._walletRpc('create_account', { label: 'Unknown #1' }); accts.subaddress_accounts.push({}); } await numistaRpc.setAccountLabel(0, `Sovereign Vault @danie#${numistaRpc._makeVerifier(PW)}`);
-    await numistaRpc.setAccountLabel(1, `Unknown #1#${numistaRpc._makeVerifier(PW)}`);
+    const accts = await numistaRpc._walletRpc('get_accounts', {}); while ((accts.subaddress_accounts || []).length < 2) { await numistaRpc._walletRpc('create_account', { label: 'Unknown #1' }); accts.subaddress_accounts.push({}); } await numistaRpc.setAccountLabel(0, `Sovereign Vault @danie#${numistaRpc._makeVerifier(ADMIN_PW)}`);
+    await numistaRpc.setAccountLabel(1, `Unknown #1#${numistaRpc._makeVerifier(TEST_PW)}`);
     await numistaRpc.storeWallet();
     log('0. Sync Wallet Verifier Labels', true, 'Account #0 (@danie) & Account #1 synced');
   } catch (e) {
@@ -48,12 +59,12 @@ async function run() {
   // 2. Login Admin Vault (#0) & Player (#1)
   let admin, player;
   try {
-    admin = await api('/api/auth/wallet-login', { method: 'POST', body: { identifier: VAULT_ADDR, password: PW } });
+    admin = await api('/api/auth/wallet-login', { method: 'POST', body: { identifier: VAULT_ADDR, password: ADMIN_PW } });
     log('2a. Admin Vault Login (#0)', Boolean(admin?.token), { username: admin.username, role: admin.role });
   } catch (e) { log('2a. Admin Vault Login (#0)', false, e.message); }
 
   try {
-    player = await api('/api/auth/wallet-login', { method: 'POST', body: { identifier: PLAYER_ADDR, password: PW } });
+    player = await api('/api/auth/wallet-login', { method: 'POST', body: { identifier: PLAYER_ADDR, password: TEST_PW } });
     log('2b. Player Account Login (#1)', Boolean(player?.token), { username: player.username, accountIndex: player.accountIndex });
   } catch (e) { log('2b. Player Account Login (#1)', false, e.message); }
 

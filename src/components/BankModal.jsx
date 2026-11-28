@@ -142,7 +142,7 @@ export default function BankModal() {
             <div>
               <div className="flex items-center space-x-2">
                 <span className="text-[10px] font-mono uppercase font-bold text-emerald-400 bg-emerald-950 border border-emerald-700/60 px-2 py-0.5 rounded">
-                  Goldnumista Sovereign Depository
+                  Worldtycoon Sovereign Depository
                 </span>
                 <span className="text-xs text-slate-400 font-mono">Lombard Vaults Protocol</span>
               </div>

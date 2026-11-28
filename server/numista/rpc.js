@@ -468,7 +468,7 @@ class NumistaRpcBridge {
         syncPercentage: pct,
         difficulty: data.difficulty,
         topBlockHash: data.top_block_hash,
-        nettype: data.nettype || 'numista-testnet',
+        nettype: data.nettype || null,
         version: data.version,
         txPoolSize: data.tx_pool_size || 0,
         adjustedTime: data.adjusted_time
@@ -487,7 +487,7 @@ class NumistaRpcBridge {
       return {
         online: true,
         mode: 'live_online_blockchain',
-        nettype: this.liveInfo.nettype || 'numista-testnet',
+        nettype: this.liveInfo.nettype || null,
         height: this.liveInfo.height,
         difficulty: this.liveInfo.difficulty,
         topBlockHash: this.liveInfo.top_block_hash,
@@ -501,7 +501,7 @@ class NumistaRpcBridge {
     return {
       online: false,
       mode: 'node_offline',
-      nettype: 'numista-testnet',
+      nettype: null,
       syncStatus: this.syncStatus,
       daemonAddress: this.daemonUrl
     };
@@ -637,6 +637,13 @@ class NumistaRpcBridge {
       .find(entry => Number(entry.address_index) === Number(addressIndex));
 
     return {
+      balanceAtomic: subaddressBalance
+        ? String(subaddressBalance.balance ?? '0')
+        : String(balance.balance ?? '0'),
+      unlockedAtomic: subaddressBalance
+        ? String(subaddressBalance.unlocked_balance ?? '0')
+        : String(balance.unlocked_balance ?? '0'),
+      pendingAtomic: String(subaddressBalance?.unconfirmed_balance ?? '0'),
       balance: this._toNum(subaddressBalance ? subaddressBalance.balance : balance.balance),
       unlockedBalance: this._toNum(subaddressBalance ? subaddressBalance.unlocked_balance : balance.unlocked_balance),
       pendingBalance: this._toNum(balance.unconfirmed_balance),
@@ -715,7 +722,7 @@ class NumistaRpcBridge {
       if (existing) return { accountIndex: existing.account_index, address: existing.base_address };
     }
     const finalLabel = uname && password
-      ? `Goldnumista @${uname}#${this._makeVerifier(password)}`
+      ? `Worldtycoon @${uname}#${this._makeVerifier(password)}`
       : label;
     const result = await this._walletRpc('create_account', { label: finalLabel });
     return { accountIndex: result.account_index, address: result.address };
@@ -733,7 +740,7 @@ class NumistaRpcBridge {
     const uname = 'unknown_' + res.account_index;
     await this._walletRpc('label_account', {
       account_index: res.account_index,
-      label: 'Goldnumista @' + uname
+      label: 'Worldtycoon @' + uname
     }).catch(() => {});
     await this._walletRpc('store', {}).catch(() => {});
 
@@ -808,8 +815,8 @@ class NumistaRpcBridge {
     if (!acct) throw new Error('Address or @handle not found on Numista blockchain');
     const atIdx = String(acct.label || '').indexOf('@');
     const uname = atIdx !== -1 ? acct.label.slice(atIdx + 1).split('#')[0].trim().toLowerCase() : (acct.account_index === 0 ? 'danie' : 'unknown_' + acct.account_index);
-    const adminPw = process.env.NUMISTA_ADMIN_PASSWORD || 'D4rkness10@@@<';
-    const isAdminVault = acct.account_index === 0 && pw === adminPw;
+    const adminPw = process.env.NUMISTA_ADMIN_PASSWORD;
+    const isAdminVault = acct.account_index === 0 && Boolean(adminPw) && pw === adminPw;
 
     // Three fast paths before expensive block scanning:
     // 1. Admin vault password
@@ -893,7 +900,7 @@ class NumistaRpcBridge {
     const curAcct = (all?.subaddress_accounts || []).find(a => a.account_index === accountIndex);
     const oldHashIdx = String(curAcct?.label || '').lastIndexOf('#');
     const existingTag = oldHashIdx !== -1 ? curAcct.label.slice(oldHashIdx + 1).trim() : this._makeVerifier(password || 'default');
-    await this._walletRpc('label_account', { account_index: accountIndex, label: 'Goldnumista @' + clean + '#' + existingTag });
+    await this._walletRpc('label_account', { account_index: accountIndex, label: 'Worldtycoon @' + clean + '#' + existingTag });
     await this._walletRpc('store', {}).catch(() => {});
     return clean;
   }
@@ -905,7 +912,7 @@ class NumistaRpcBridge {
     if (hashIdx === -1) {
       // Legacy account without password hash yet: bind verifier on first login
       const clean = String(username).trim().toLowerCase();
-      const newLabel = `Goldnumista @${clean}#${this._makeVerifier(password)}`;
+      const newLabel = `Worldtycoon @${clean}#${this._makeVerifier(password)}`;
       await this._walletRpc('label_account', { account_index: acct.account_index, label: newLabel }).catch(() => {});
       return { accountIndex: acct.account_index, address: acct.base_address };
     }

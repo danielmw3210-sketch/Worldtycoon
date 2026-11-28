@@ -136,7 +136,7 @@ class StratumBridgeManager {
           params: {
             login: stratumLogin,
             pass: 'x',
-            agent: 'Goldnumista-StratumBridge/1.0'
+            agent: 'Worldtycoon-StratumBridge/1.0'
           }
         }) + '\n';
         socket.write(loginPayload);

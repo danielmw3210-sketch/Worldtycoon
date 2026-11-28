@@ -160,7 +160,7 @@ const register = async (username, password) => {
     setUser(null);
     setWallet({ balance: 0, unlockedBalance: 0, pendingBalance: 0, lockedBalance: 0, totalBalance: 0, recentTransfers: [] });
     localStorage.removeItem('goldnumista_user');
-    addToast('Logged out of Goldnumista', 'info');
+    addToast('Logged out of Worldtycoon', 'info');
   };
 
   // Refresh Plots
@@ -334,7 +334,7 @@ const register = async (username, password) => {
     for (let i = 0; i < 1200; i++) {
       await new Promise(r => setTimeout(r, 500));
       try {
-        const res = await fetch(`/api/jobs/${jobId}`);
+        const res = await fetch(`/api/jobs/${jobId}`, { headers: sessionHeaders() });
         if (!res.ok) continue;
         const { job } = await res.json();
         if (!job) continue;

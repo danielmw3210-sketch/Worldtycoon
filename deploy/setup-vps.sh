@@ -2,7 +2,7 @@
 set -euo pipefail
 
 echo "================================================================"
-echo "    Numista Blockchain & Townforge Game VPS Auto-Provisioner    "
+echo "    Numista Blockchain & Worldtycoon Game VPS Auto-Provisioner    "
 echo "================================================================"
 
 # 1. Update and install prerequisites
@@ -10,10 +10,10 @@ echo "--> Updating packages..."
 apt-get update -y
 apt-get install -y curl wget git build-essential ufw nginx certbot python3-certbot-nginx
 
-# 2. Install Node.js 20 LTS (if not present)
-if ! command -v node &> /dev/null; then
-    echo "--> Installing Node.js 20.x..."
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+# 2. Ensure Node.js 22.5 or later is installed
+if ! command -v node &> /dev/null || ! node -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit(major > 22 || (major === 22 && minor >= 5) ? 0 : 1)'; then
+    echo "--> Installing Node.js 22.x..."
+    curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
     apt-get install -y nodejs
 fi
 echo "Node version: $(node --version)"

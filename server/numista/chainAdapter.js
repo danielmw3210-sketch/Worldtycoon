@@ -430,13 +430,33 @@ class ChainAdapter {
       reason: ''
     };
 
+    const mainnet = CONFIG.NUMISTA.NETTYPE === 'numista-mainnet';
+    const missingConfig = [];
+    if (!CONFIG.NUMISTA.DAEMON_RPC_URL) missingConfig.push('NUMISTA_DAEMON_RPC is required');
+    if (!CONFIG.NUMISTA.WALLET_RPC_URL) missingConfig.push('NUMISTA_WALLET_RPC is required');
+    if (!CONFIG.CHAIN.ISSUER_PUBLIC_KEY) missingConfig.push('NUMISTA_ISSUER_PUBLIC_KEY is required');
+    if (!CONFIG.CHAIN.ISSUER_WALLET_FILE) missingConfig.push('NUMISTA_ISSUER_WALLET is required');
+    if (mainnet && !CONFIG.CHAIN.TREASURY_ADDRESS) missingConfig.push('NUMISTA_TREASURY_ADDRESS is required');
+    if (mainnet && !CONFIG.CHAIN.TREASURY_USERNAME) missingConfig.push('NUMISTA_TREASURY_USER is required');
+    if (mainnet && !CONFIG.CHAIN.CURRENCY_ASSET_ID) missingConfig.push('NUMISTA_CURRENCY_ASSET_ID is required');
+    if (missingConfig.length) {
+      out.reason = missingConfig.join('; ');
+      return out;
+    }
+
     try {
       const info = await this._daemonRaw('get_info');
       out.daemonOnline = true;
       out.height = info.height || 0;
       out.nettype = info.nettype || null;
-      if (out.nettype && !/numista/i.test(out.nettype)) {
-        out.reason = `daemon is on "${out.nettype}", not Numista testnet`;
+      const actualNetwork = String(out.nettype || '').trim().toLowerCase();
+      const acceptedNetworks = mainnet
+        ? ['mainnet', 'numista-mainnet']
+        : ['testnet', 'numista-testnet'];
+      if (!acceptedNetworks.includes(actualNetwork)) {
+        out.reason = actualNetwork
+          ? `daemon is on "${out.nettype}", expected ${CONFIG.NUMISTA.NETTYPE}`
+          : `daemon did not report its network; expected ${CONFIG.NUMISTA.NETTYPE}`;
         return out;
       }
       if (info.synchronized === false) {
@@ -462,6 +482,18 @@ class ChainAdapter {
       out.assetRpc = !/method not found|unknown method|-32601/i.test(err.message || '');
     }
 
+    let currencyAssetMatches = false;
+    if (mainnet && out.assetRpc) {
+      try {
+        const asset = await this._daemonJsonRpc('get_numista_asset', { asset_id: NUM_ASSET_ID });
+        currencyAssetMatches = asset?.found === true &&
+          asset.asset_type === CURRENCY_ASSET_TYPE &&
+          asset.metadata_hash === CURRENCY_METADATA_HASH;
+      } catch {
+        currencyAssetMatches = false;
+      }
+    }
+
     try {
       const version = await this._walletJsonRpc('get_version');
       out.walletOnline = true;
@@ -470,6 +502,9 @@ class ChainAdapter {
 
     const missing = [];
     if (!out.assetRpc) missing.push('daemon lacks get_numista_asset (old build)');
+    if (mainnet && !currencyAssetMatches) {
+      missing.push('configured NUMISTA_CURRENCY_ASSET_ID is missing or does not match the NUM asset metadata');
+    }
     if (!out.walletOnline) missing.push(`wallet RPC unreachable at ${CONFIG.NUMISTA.WALLET_RPC_URL}`);
     if (!out.issuerConfigured) missing.push('NUMISTA_ISSUER_PUBLIC_KEY is not set');
 

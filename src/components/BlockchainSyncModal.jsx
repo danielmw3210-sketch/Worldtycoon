@@ -58,7 +58,7 @@ export default function BlockchainSyncModal() {
                   Numista Cryptonote Daemon
                 </span>
                 <span className="text-xs text-slate-400 font-mono">
-                  {network.nettype || 'testnet'}
+                  {network.nettype || 'unknown network'}
                 </span>
               </div>
               <h2 className="text-xl font-bold text-white mt-1">Online Blockchain Synchronization</h2>
@@ -197,7 +197,7 @@ export default function BlockchainSyncModal() {
               </button>
             </div>
             <span className="text-[10px] text-slate-500 font-mono block">
-              Default: Local offline testnet node (<code className="text-slate-400">http://127.0.0.1:48081</code>). Can connect to any public or private Numista daemon.
+              Default: Local offline testnet node for development. Configure the server RPCs for the intended network.
             </span>
           </div>
 

@@ -1,9 +1,9 @@
 @echo off
-title Townforge Numista - API Server
+title Worldtycoon - API Server
 cd /d "%~dp0"
 
 echo ============================================
-echo   TOWNFORGE NUMISTA - Backend API Server
+echo   WORLDTYCOON - Backend API Server
 echo ============================================
 echo.
 
@@ -19,6 +19,14 @@ if not exist "node_modules" (
   echo ERROR: Dependencies are missing ^(node_modules not found^).
   echo Run: npm install
   echo Or run launch.bat / run-game.ps1 to install and start.
+  pause
+  exit /b 1
+)
+
+echo Building the frontend served on port 3001...
+call npm run build
+if errorlevel 1 (
+  echo ERROR: Frontend build failed. The server was not started.
   pause
   exit /b 1
 )

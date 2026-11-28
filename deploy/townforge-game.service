@@ -1,5 +1,5 @@
 [Unit]
-Description=Townforge Numista Game API Backend
+Description=Worldtycoon Game API Backend
 After=network.target numista-wallet-rpc.service
 Requires=numista-wallet-rpc.service
 

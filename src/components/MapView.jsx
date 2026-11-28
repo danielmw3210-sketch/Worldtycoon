@@ -3,6 +3,8 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { useGame } from '../context/GameContext';
 import { createUkGridLayer } from './UkGridLayer';
+import GameSprite from './GameSprite';
+import { buildingSprite, spritePosition } from './sprites';
 import {
   Landmark,
   MapPin,
@@ -66,12 +68,38 @@ function formatIncome(n) {
   return value.toFixed(4);
 }
 
+function getPlotBuildings(plot) {
+  const buildings = [];
+  const seen = new Set();
+  const add = building => {
+    const sprite = buildingSprite(building);
+    if (!sprite || seen.has(building.type)) return;
+    seen.add(building.type);
+    buildings.push({ ...building, sprite });
+  };
+
+  add(plot.building);
+  for (const structure of plot.structures || []) add(structure);
+  return buildings;
+}
+
+function escapeMapText(value) {
+  return String(value || '').replace(/[&<>"']/g, char => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  })[char]);
+}
+
 export default function MapView() {
   const mapContainerRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const tileLayerRef = useRef(null);
   const gridLayerRef = useRef(null);
   const labelLayerRef = useRef(null);
+  const buildingLayerRef = useRef(null);
   const armyLayerRef = useRef(null);
 
   const {
@@ -177,6 +205,7 @@ export default function MapView() {
       gridLayerRef.current = gridLayer;
 
       labelLayerRef.current = L.layerGroup().addTo(map);
+      buildingLayerRef.current = L.layerGroup().addTo(map);
       armyLayerRef.current = L.layerGroup().addTo(map);
       mapInstanceRef.current = map;
 
@@ -194,7 +223,8 @@ export default function MapView() {
         tileLayerRef.current = null;
         gridLayerRef.current = null;
         labelLayerRef.current = null;
-          armyLayerRef.current = null;
+        buildingLayerRef.current = null;
+        armyLayerRef.current = null;
       }
     };
   }, []);
@@ -263,6 +293,59 @@ export default function MapView() {
   }, [plots, viewVersion]);
 
   useEffect(() => {
+    const map = mapInstanceRef.current;
+    const layer = buildingLayerRef.current;
+    if (!map || !layer) return;
+
+    layer.clearLayers();
+    const zoom = map.getZoom();
+    if (zoom < 6) return;
+
+    const bounds = map.getBounds();
+    let drawn = 0;
+    for (const plot of plots) {
+      if (drawn >= 240) break;
+      if ((!plot.isClaimed && !plot.isLandmark) || plot.nftState?.stage === 'pending') continue;
+      if (!plotFilter(plot)) continue;
+      const [lat, lng] = plot.coords || [];
+      if (!Number.isFinite(lat) || !Number.isFinite(lng) || !bounds.contains([lat, lng])) continue;
+
+      const buildings = getPlotBuildings(plot);
+      if (!buildings.length) continue;
+      const visibleBuildings = zoom >= 11 ? buildings : buildings.slice(0, 1);
+      const description = buildings.map(({ name, type, level }) =>
+        `${name || type.replaceAll('_', ' ')}${level > 1 ? ` · Level ${level}` : ''}`
+      ).join(', ');
+
+      visibleBuildings.forEach((building, index) => {
+        const width = zoom >= 11 ? 40 : 48;
+        const height = zoom >= 11 ? 54 : 64;
+        const offset = zoom >= 11
+          ? (index - (visibleBuildings.length - 1) / 2) * 28
+          : 0;
+        const position = spritePosition(building.sprite);
+        const title = `${plot.name}: ${description}`;
+        const badge = zoom < 11 && buildings.length > 1
+          ? `<b class="plot-building-count">+${buildings.length - 1}</b>`
+          : '';
+        const icon = L.divIcon({
+          className: 'plot-building-icon',
+          html: `<span class="plot-building-marker" title="${escapeMapText(title)}" aria-label="${escapeMapText(title)}"><span class="plot-building-sprite" style="background-position:${position}"></span>${badge}</span>`,
+          iconSize: [width, height],
+          iconAnchor: [width / 2 - offset, height * 0.88]
+        });
+        L.marker(plot.coords, {
+          icon,
+          interactive: false,
+          keyboard: false,
+          zIndexOffset: 1000
+        }).addTo(layer);
+      });
+      drawn += 1;
+    }
+  }, [plots, viewVersion, plotFilter]);
+
+  useEffect(() => {
     const layer = armyLayerRef.current;
     if (!layer || !user?.token) { layer?.clearLayers(); return; }
     let alive = true;
@@ -310,13 +393,13 @@ export default function MapView() {
   ];
 
   return (
-    <div className="relative w-full h-[calc(100vh-62px)] overflow-hidden">
+    <div className="absolute inset-0 overflow-hidden">
 
       {/* Map Canvas */}
       <div ref={mapContainerRef} className="w-full h-full z-0 bg-[#0b0e14]" />
 
       {/* Filter Tabs Overlay */}
-      <div className="absolute top-4 left-4 z-20 max-w-[calc(100vw-2rem)] bg-[#0f141c]/90 backdrop-blur-md p-1.5 rounded-xl border border-slate-800 shadow-2xl">
+      <div className="absolute top-4 left-4 z-20 max-w-[calc(100vw-9rem)] bg-[#0f141c]/90 backdrop-blur-md p-1.5 rounded-xl border border-slate-800 shadow-2xl">
         <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
           {tabs.map(tab => (
             <button
@@ -406,9 +489,11 @@ export default function MapView() {
 
       {/* Selected Plot Quick Bar */}
       {selectedPlot && (
-        <div className="absolute bottom-6 right-4 sm:right-16 z-20 max-w-sm w-full bg-[#161d2a]/95 backdrop-blur-md p-4 rounded-2xl border border-slate-700 shadow-2xl transition-all animate-fadeIn">
+        <div className="absolute bottom-6 right-4 sm:right-16 z-20 max-w-sm w-[calc(100%-2rem)] bg-[#161d2a]/95 backdrop-blur-md p-4 rounded-2xl border border-slate-700 shadow-2xl transition-all animate-fadeIn">
           <div className="flex items-start justify-between">
-            <div className="min-w-0">
+            <div className="min-w-0 flex gap-3">
+              <GameSprite sprite={buildingSprite(selectedPlot.building)} className="game-art--small rounded-lg" />
+              <div className="min-w-0">
               <span className="text-[10px] font-mono text-orange-400 font-bold tracking-wider uppercase">
                 {selectedPlot.region} · {selectedPlot.label || selectedPlot.id}
               </span>
@@ -428,6 +513,7 @@ export default function MapView() {
                   <Coins className="w-3 h-3 mr-1 text-orange-400" />
                   {formatNum(selectedPlot.price)} NUM
                 </span>
+                </div>
               </div>
             </div>
             <button

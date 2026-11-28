@@ -165,7 +165,7 @@ export default function TownHallView() {
           <div className="p-5 rounded-xl bg-slate-900/50 border border-slate-800 space-y-3">
             <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300 font-mono flex items-center space-x-2">
               <Shield className="w-4 h-4 text-amber-400" />
-              <span>District Civic Upgrades & Goldnumista Ordinances</span>
+              <span>District Civic Upgrades & Worldtycoon Ordinances</span>
             </h4>
             <div className="space-y-2">
               <div className="p-3 rounded-lg bg-slate-800/40 border border-slate-700/60 flex items-center justify-between">

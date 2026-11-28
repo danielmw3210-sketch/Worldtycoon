@@ -1,9 +1,9 @@
 @echo off
-title Townforge Numista - Game Launcher
+title Worldtycoon - Game Launcher
 cd /d "%~dp0"
 
 echo ============================================
-echo   TOWNFORGE NUMISTA - Game Server Launcher
+echo   WORLDTYCOON - Game Server Launcher
 echo ============================================
 echo.
 
@@ -23,14 +23,22 @@ if not exist "node_modules" (
   exit /b 1
 )
 
+echo Building the frontend served on port 3001...
+call npm run build
+if errorlevel 1 (
+  echo ERROR: Frontend build failed. The server was not started.
+  pause
+  exit /b 1
+)
+
 echo Starting Backend API Server (port 3001)...
-start "Townforge API Server" cmd /k "cd /d ""%~dp0"" && node ""%~dp0server\index.js"""
+start "Worldtycoon API Server" cmd /k "cd /d ""%~dp0"" && node ""%~dp0server\index.js"""
 
 echo Waiting for backend to initialize...
 timeout /t 3 /nobreak >nul
 
 echo Starting Frontend Dev Server (port 5173)...
-start "Townforge Frontend" cmd /k "cd /d ""%~dp0"" && node ""%~dp0node_modules\vite\bin\vite.js"""
+start "Worldtycoon Frontend" cmd /k "cd /d ""%~dp0"" && node ""%~dp0node_modules\vite\bin\vite.js"""
 
 echo Waiting for Vite to start...
 timeout /t 4 /nobreak >nul

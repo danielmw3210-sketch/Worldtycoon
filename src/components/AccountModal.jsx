@@ -12,11 +12,11 @@ export default function AccountModal() {
     { key: 'castles', label: 'Frontier Castles', detail: 'Besiege and capture abandoned deeds', icon: ShieldCheck, color: 'text-red-300' }
   ];
 
-  return <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-    <section className="w-full max-w-lg rounded-2xl border border-slate-700 bg-[#161d2a] shadow-2xl overflow-hidden">
-      <header className="flex items-center justify-between p-5 border-b border-slate-700">
+  return <div className="fixed inset-0 z-50 flex items-center justify-center p-4 game-modal-backdrop">
+    <section className="game-modal-panel w-full max-w-lg rounded-2xl overflow-y-auto">
+      <header className="game-modal-header flex items-center justify-between p-5">
         <div className="flex items-center gap-3"><User className="w-6 h-6 text-orange-300" /><div><h2 className="text-lg font-black text-white">Account</h2><p className="text-xs text-slate-400">{user?.title ? <><span className="text-amber-300">{user.title.split(' / ')[0]}</span> · </> : null}@{user?.username}</p></div></div>
-        <button onClick={() => setActiveModal(null)} className="p-2 rounded-lg hover:bg-slate-800 text-slate-300" aria-label="Close"><X className="w-4 h-4" /></button>
+        <button onClick={() => setActiveModal(null)} className="game-modal-close" aria-label="Close"><X className="w-4 h-4" /></button>
       </header>
       <div className="p-5 space-y-4">
         <div className="grid grid-cols-2 gap-3">

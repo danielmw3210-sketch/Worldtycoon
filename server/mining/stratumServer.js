@@ -187,22 +187,31 @@ export function startBuiltInStratumServer(port = Number(process.env.NUMISTA_STRA
           } else if (req.method === 'submit') {
             const miner = socketMiners.get(socket) || { address: CONFIG.CHAIN.TREASURY_ADDRESS, username: 'miner' };
             const job = jobs.get(req.params?.job_id);
-            const height = job?.tpl?.height || numistaRpc.syncStatus.height || 0;
-
-            // Record share in PPLNS window
-            pplnsPool.recordShare({ address: miner.address, username: miner.username, weight: 1, height });
-
-            // If valid RandomX block candidate hits daemon difficulty, submit to monerod & settle PPLNS native NUM!
             const nonceHex = String(req.params?.nonce || '');
-            if (job?.tpl?.blockTemplateBlob && nonceHex.length === 8) {
-              const fullBlob = job.tpl.blockTemplateBlob.slice(0, 78) + nonceHex + job.tpl.blockTemplateBlob.slice(86);
-              const sub = await numistaRpc.submitBlock(fullBlob).catch(() => null);
-              if (sub?.status === 'OK') {
-                const rewardNum = job.tpl.expectedReward ? +(job.tpl.expectedReward / 1e12).toFixed(6) : CONFIG.ECONOMY.MINING_ROUND_REWARD;
-                console.log(`[stratum-server] Block #${height} accepted! Settling ${rewardNum} native NUM via PPLNS...`);
-                await pplnsPool.settleBlockReward(height, rewardNum);
-              }
+            if (!job?.tpl?.blockTemplateBlob || !/^[a-f0-9]{8}$/i.test(nonceHex)) {
+              socket.write(JSON.stringify({ id: req.id, error: { code: -1, message: 'Invalid or expired mining job/share' } }) + '\n');
+              continue;
             }
+            const fullBlob = job.tpl.blockTemplateBlob.slice(0, 78) + nonceHex + job.tpl.blockTemplateBlob.slice(86);
+            let submitResult;
+            try {
+              submitResult = await numistaRpc.submitBlock(fullBlob);
+            } catch (err) {
+              socket.write(JSON.stringify({ id: req.id, error: { code: -1, message: err.message || 'Block was rejected' } }) + '\n');
+              continue;
+            }
+            if (submitResult?.status !== 'OK') {
+              socket.write(JSON.stringify({ id: req.id, error: { code: -1, message: submitResult?.error || 'Block was rejected' } }) + '\n');
+              continue;
+            }
+
+            const height = job.tpl.height || numistaRpc.syncStatus.height || 0;
+            pplnsPool.recordShare({ address: miner.address, username: miner.username, weight: 1, height });
+            const rewardNum = job.tpl.expectedReward
+              ? +(job.tpl.expectedReward / 1e12).toFixed(6)
+              : CONFIG.ECONOMY.MINING_ROUND_REWARD;
+            console.log(`[stratum-server] Block #${height} accepted! Settling ${rewardNum} native NUM via PPLNS...`);
+            await pplnsPool.settleBlockReward(height, rewardNum);
             socket.write(JSON.stringify({ id: req.id, jsonrpc: '2.0', result: { status: 'OK' } }) + '\n');
           }
         } catch {}

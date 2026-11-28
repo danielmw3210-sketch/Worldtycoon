@@ -1,11 +1,11 @@
-# Townforge Numista - Full Game Launcher
+# Worldtycoon - Full Game Launcher
 # Run this via launch.bat (bypasses PowerShell execution policy)
 
 $projectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $projectDir
 
 Write-Host "============================================" -ForegroundColor Cyan
-Write-Host "  TOWNFORGE NUMISTA - Game Launcher" -ForegroundColor Yellow
+Write-Host "  WORLDTYCOON - Game Launcher" -ForegroundColor Yellow
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -33,6 +33,14 @@ if (-not (Test-Path "node_modules")) {
 
 if (-not (Test-Path "node_modules\vite\bin\vite.js")) {
     Write-Host "ERROR: Vite is missing. Run 'npm install' in this folder." -ForegroundColor Red
+    Read-Host "Press Enter to exit"
+    exit 1
+}
+
+Write-Host "Building the frontend served on port 3001..." -ForegroundColor Yellow
+& npm.cmd run build
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "ERROR: Frontend build failed. The server was not started." -ForegroundColor Red
     Read-Host "Press Enter to exit"
     exit 1
 }

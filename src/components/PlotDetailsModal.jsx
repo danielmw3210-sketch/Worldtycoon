@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useGame } from '../context/GameContext';
+import GameSprite from './GameSprite';
+import { buildingSprite } from './sprites';
 import {
   Building2,
   Landmark,
@@ -115,7 +117,9 @@ export default function PlotDetailsModal() {
     let alive = true;
     const tick = async () => {
       try {
-        const res = await fetch(`/api/jobs/${activeJobId}`);
+        const res = await fetch(`/api/jobs/${activeJobId}`, {
+          headers: { Authorization: `Bearer ${user?.token || ''}` }
+        });
         if (!res.ok) return;
         const data = await res.json();
         if (alive) /* autoRefreshOnDone */ if (!data.job && nft.stage === 'pending' && typeof onRefreshPlot === 'function') onRefreshPlot(plot.id); setJobInfo(data.job || null);
@@ -124,17 +128,19 @@ export default function PlotDetailsModal() {
     tick();
     const timer = setInterval(tick, 1500);
     return () => { alive = false; clearInterval(timer); };
-  }, [activeJobId]);
+  }, [activeJobId, user?.token]);
 
   if (!selectedPlot) return null;
 
   const rarityColor = RARITY_COLORS[selectedPlot.rarityKey] || '#94a3b8';
   const isOwner = !!user?.username && [selectedPlot.owner, selectedPlot.controller].some(name => String(name || '').replace(/^@/, '').toLowerCase() === user.username.toLowerCase());
   const accrued = Number(building?.stats?.accruedIncome) || 0;
-  const maxLevel = 5;
+  const maxLevel = 10;
   const upgradeCost = selectedPlot.price * 0.4 * (building?.level || 1);
   const isIncomeProperty = building && building.incomePerHour > 0 && building.type !== 'town_hall';
   const isMint = building?.category === 'mint';
+  const builtStructureCount = (selectedPlot.structures || []).filter(structure => structure.type !== 'peasant_lodge').length;
+  const availableBuildingSlots = Math.max(0, Number(building?.level || 1) - builtStructureCount);
 
   const handleClaim = async () => {
     try {
@@ -263,11 +269,11 @@ export default function PlotDetailsModal() {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn">
-      <div className="bg-[#161d2a] border border-slate-700 w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 game-modal-backdrop animate-fadeIn">
+      <div className="game-modal-panel w-full max-w-2xl rounded-2xl overflow-hidden flex flex-col max-h-[90vh]">
 
         {/* Header */}
-        <div className="relative p-6 bg-gradient-to-r from-[#1a2332] to-[#161d2a] border-b border-slate-700/80">
+        <div className="game-modal-header relative p-6">
           <div className="flex items-start justify-between">
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
@@ -289,7 +295,8 @@ export default function PlotDetailsModal() {
             </div>
             <button
               onClick={() => setActiveModal(null)}
-              className="text-slate-400 hover:text-white p-2 rounded-xl hover:bg-slate-800 transition-colors"
+              className="game-modal-close"
+              aria-label="Close plot details"
             >
               ✕
             </button>
@@ -337,8 +344,11 @@ export default function PlotDetailsModal() {
               </div>
 
               <div className="p-4 rounded-xl bg-slate-900/70 border border-slate-800 space-y-2">
-                <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 font-mono">
-                  This plot starts with a Peasant Lodge
+                <div className="flex items-center gap-3">
+                  <GameSprite sprite={buildingSprite({ type: 'peasant_lodge' })} className="game-art--small" />
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 font-mono">
+                    This plot starts with a Peasant Lodge
+                  </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {Object.entries(selectedPlot.resourceDeposits || {}).filter(([, amount]) => Number(amount) > 0).map(([resource, amount]) => (
@@ -377,9 +387,11 @@ export default function PlotDetailsModal() {
               <div className="p-5 rounded-2xl bg-gradient-to-br from-slate-900 to-slate-900/60 border border-slate-800">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-start gap-3 min-w-0">
-                    <div className="w-12 h-12 rounded-xl bg-gradient-to-tr from-orange-600 to-amber-500 flex items-center justify-center shrink-0 border border-orange-300/40">
-                      {React.createElement(categoryIcon(building), { className: 'w-6 h-6 text-white' })}
-                    </div>
+                    {buildingSprite(building)
+                      ? <GameSprite sprite={buildingSprite(building)} />
+                      : <div className="w-12 h-12 rounded-xl bg-gradient-to-tr from-orange-600 to-amber-500 flex items-center justify-center shrink-0 border border-orange-300/40">
+                          {React.createElement(categoryIcon(building), { className: 'w-6 h-6 text-white' })}
+                        </div>}
                     <div className="min-w-0">
                       <div className="text-[10px] font-mono uppercase tracking-wider text-slate-400">
                         {building.category || 'property'} · Level {building.level}
@@ -392,6 +404,15 @@ export default function PlotDetailsModal() {
                     {selectedPlot.owner}
                   </span>
                 </div>
+
+                {building.type === 'peasant_lodge' && (
+                  <button
+                    onClick={() => setActiveModal('resources')}
+                    className="mt-4 w-full py-2.5 rounded-xl bg-emerald-900/70 hover:bg-emerald-800 border border-emerald-700/60 text-emerald-100 text-xs font-bold"
+                  >
+                    Open Plot Resources & Metal Mint
+                  </button>
+                )}
 
                 {isIncomeProperty && (
                   <>
@@ -439,7 +460,7 @@ export default function PlotDetailsModal() {
                       </button>
                     </div>
                     <div className="mt-2 text-[10px] text-slate-500 font-mono flex justify-between">
-                      <span>+25% income per level · max L{maxLevel}</span>
+                      <span>+25% income per level · L5 Motte-and-Bailey · L10 Castle</span>
                       <span>Collected all-time: {formatIncome(building.stats?.totalIncomeCollected)} NUM</span>
                     </div>
                   </>
@@ -448,21 +469,20 @@ export default function PlotDetailsModal() {
                 {building.type === 'peasant_lodge' && (
                   <div className="mt-4 p-4 rounded-xl bg-emerald-950/15 border border-emerald-500/25 space-y-3">
                     <div className="flex items-center justify-between gap-2">
-                      <div><h4 className="text-sm font-bold text-emerald-200">Settlement & Resources</h4><p className="text-[10px] text-slate-400">Lodge level {building.level} · {Math.max(0, Number(building.level || 1) - (selectedPlot.structures || []).length)} open building slot(s)</p></div>
+                      <div><h4 className="text-sm font-bold text-emerald-200">Settlement & Resources</h4><p className="text-[10px] text-slate-400">Settlement level {building.level} · {availableBuildingSlots} open building slot(s)</p></div>
                     </div>
                     <div className="flex flex-wrap gap-1.5">
                       {Object.entries(selectedPlot.stockpile || {}).map(([resource, amount]) => <span key={resource} className="px-2 py-1 rounded bg-slate-950/70 border border-slate-800 text-[10px] text-slate-300 capitalize">{resource}: {Number(amount || 0).toFixed(1)}</span>)}
                     </div>
-                    <div className="space-y-1">{(selectedPlot.structures || []).map((structure, index) => <div key={`${structure.type}-${index}`} className="text-xs text-slate-200">• {structure.name} {structure.resource ? <span className="text-emerald-300">· extracts {structure.resource} at {structure.outputPerHour}/h</span> : ''}</div>)}</div>
+                    <div className="grid sm:grid-cols-2 gap-2">{(selectedPlot.structures || []).map((structure, index) => <div key={`${structure.type}-${index}`} className="game-modal-card rounded-lg p-2 flex items-center gap-2 text-xs text-slate-200"><GameSprite sprite={buildingSprite(structure)} className="game-art--small" /><span>{structure.name} {structure.resource ? <span className="block text-emerald-300">Extracts {structure.resource} at {structure.outputPerHour}/h</span> : ''}</span></div>)}</div>
                     {isOwner && <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                       {Object.entries(selectedPlot.resourceDeposits || {}).filter(([, amount]) => Number(amount) > 0).map(([resource]) => {
                         const type = resource === 'wood' ? 'woodcutter' : `${resource}_mine`;
                         const names = { wood: 'Woodcutter Camp', iron: 'Iron Mine', tin: 'Tin Mine', copper: 'Copper Mine', silver: 'Silver Mine', gold: 'Gold Mine' };
-                        const builtCount = (selectedPlot.structures || []).filter(s => s.type !== 'peasant_lodge').length;
-                        return <button key={resource} disabled={buildingStructure === type || builtCount >= Number(building.level || 1)} onClick={() => handleBuildStructure(type)} className="p-2 rounded-lg border border-slate-700 bg-slate-950 hover:border-emerald-500/50 disabled:opacity-40 text-left"><div className="text-[11px] font-bold text-white">{buildingStructure === type ? 'Building…' : names[resource] || resource}</div><div className="text-[9px] text-slate-500">Uses {resource === 'gold' || resource === 'silver' ? 'wood + iron' : 'wood'}</div></button>;
+                        return <button key={resource} disabled={buildingStructure === type || availableBuildingSlots === 0} onClick={() => handleBuildStructure(type)} className="p-2 rounded-lg border border-slate-700 bg-slate-950 hover:border-emerald-500/50 disabled:opacity-40 text-left flex items-center gap-2"><GameSprite sprite={buildingSprite({ type })} className="game-art--small" /><span><span className="block text-[11px] font-bold text-white">{buildingStructure === type ? 'Building…' : names[resource] || resource}</span><span className="block text-[9px] text-slate-500">Uses {resource === 'gold' || resource === 'silver' ? 'wood + iron' : 'wood'}</span></span></button>;
                       })}
                     </div>}
-                    {(selectedPlot.structures || []).length >= Number(building.level || 1) && <p className="text-[10px] text-amber-300">Upgrade the lodge to unlock another building slot.</p>}
+                    {availableBuildingSlots === 0 && <p className="text-[10px] text-amber-300">Upgrade the lodge to unlock another building slot.</p>}
                   </div>
                 )}
 

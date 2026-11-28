@@ -232,6 +232,21 @@ class ChainLedger {
     return this.state.txs.filter(t => t.username === key).slice(0, limit);
   }
 
+  adminSummary() {
+    const balances = Object.values(this.state.balances || {});
+    const totalInGame = balances.reduce((sum, balance) =>
+      sum + Math.max(0, Number(balance.chainSettled) || 0), 0);
+    const minedInGame = (this.state.txs || [])
+      .filter(tx => tx.type === 'mining' && tx.status !== 'reverted')
+      .reduce((sum, tx) => sum + Math.max(0, Number(tx.amount) || 0), 0);
+    return {
+      totalInGame,
+      minedInGame,
+      accountCount: balances.length,
+      transactionCount: (this.state.txs || []).length
+    };
+  }
+
   /* ---- username registry ---- */
 
   getUsernameRecord(username) {

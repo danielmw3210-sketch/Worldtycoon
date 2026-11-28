@@ -4,7 +4,7 @@ import { generatePlotNames } from './plotNames.js';
 import { deedAssetId } from './deedRegistry.js';
 
 /**
- * Goldnumista UK land grid.
+ * Worldtycoon UK land grid.
  *
  * The map is divided into a deterministic grid of square plots (50 x 70 = 3,500).
  * Plot rarity and prices are generated from a fixed seed, so the same plots,
@@ -167,10 +167,10 @@ const PLOT_RESOURCE_TYPES = ['wood', 'iron', 'tin', 'copper', 'silver', 'gold'];
 export function generateResourceDeposits(seed, tier) {
   const rand = mulberry32(hashString(`${seed}:resources`));
   const count = 2 + (Number(tier) >= 5 ? 1 : 0) + (Number(tier) >= 8 ? 1 : 0);
-  const shuffled = [...PLOT_RESOURCE_TYPES];
+  const shuffled = PLOT_RESOURCE_TYPES.filter(resource => resource !== 'wood');
   shuffleInPlace(shuffled, rand);
   const deposits = {};
-  for (const resource of shuffled.slice(0, count)) {
+  for (const resource of ['wood', ...shuffled.slice(0, count - 1)]) {
     const rarityBonus = Math.max(0, Number(tier) - 1);
     const base = resource === 'gold' ? 25 : resource === 'silver' ? 50 : resource === 'copper' ? 80 : 120;
     deposits[resource] = Math.round(base * (1 + rarityBonus * 0.2) * (0.75 + rand() * 0.5));

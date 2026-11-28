@@ -1,5 +1,5 @@
 @echo off
-title Townforge Numista - Full Launcher (PowerShell)
+title Worldtycoon - Full Launcher (PowerShell)
 cd /d "%~dp0"
 
 REM Launch the PowerShell script with execution policy bypass

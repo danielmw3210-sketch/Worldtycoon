@@ -112,7 +112,7 @@ export default function BlockExplorerModal() {
                   Numista Blockchain Explorer
                 </span>
                 <span className="text-xs text-slate-400 font-mono">
-                  {status?.nettype || 'numista-testnet'}
+                  {status?.nettype || 'unknown network'}
                 </span>
               </div>
               <h2 className="text-xl font-black text-white mt-0.5">On-Chain Ledger & Proofs</h2>

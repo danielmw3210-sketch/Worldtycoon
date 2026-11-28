@@ -24,6 +24,37 @@ export default function WalletStatus() {
   const [receiveInfo, setReceiveInfo] = useState(null);
   const [receiveError, setReceiveError] = useState('');
   const [copiedAddress, setCopiedAddress] = useState(false);
+  const [portfolio, setPortfolio] = useState(null);
+  const [portfolioError, setPortfolioError] = useState('');
+
+  useEffect(() => {
+    if (!user?.username) return;
+    let cancelled = false;
+    const refreshPortfolio = async () => {
+      try {
+        const res = await fetch('/api/wallet/portfolio', {
+          headers: { Authorization: `Bearer ${user?.token || ''}` }
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Unable to load chain portfolio');
+        if (!cancelled) {
+          setPortfolio(data);
+          setPortfolioError('');
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setPortfolio(null);
+          setPortfolioError(err.message || 'Chain portfolio unavailable');
+        }
+      }
+    };
+    refreshPortfolio();
+    const interval = setInterval(refreshPortfolio, 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [user?.username, user?.token]);
 
   useEffect(() => {
   if (!user?.username) return;
@@ -161,11 +192,11 @@ const pending = wallet?.pendingBalance ?? 0;
 const locked = wallet?.lockedBalance ?? 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn">
-      <div className="bg-[#161d2a] border border-slate-700 w-full max-w-xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 game-modal-backdrop animate-fadeIn">
+      <div className="game-modal-panel w-full max-w-xl rounded-2xl overflow-hidden flex flex-col max-h-[90vh]">
 
         {/* Header */}
-        <div className="p-6 bg-gradient-to-r from-slate-900 to-[#161d2a] border-b border-slate-800 flex items-start justify-between">
+        <div className="game-modal-header p-6 flex items-start justify-between">
           <div className="flex items-center space-x-3.5">
             <div className="w-12 h-12 rounded-xl bg-gradient-to-tr from-orange-600 to-amber-500 flex items-center justify-center text-white shadow-lg border border-orange-300">
               <ShieldCheck className="w-6 h-6" />
@@ -185,7 +216,8 @@ const locked = wallet?.lockedBalance ?? 0;
           </div>
           <button
             onClick={() => setActiveModal(null)}
-            className="text-slate-400 hover:text-white p-2 rounded-xl hover:bg-slate-800 transition-colors"
+            className="game-modal-close"
+            aria-label="Close"
           >
             ✕
           </button>
@@ -248,6 +280,45 @@ const locked = wallet?.lockedBalance ?? 0;
                     Deposit NUM
                   </button>
                 </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="game-modal-card p-4 rounded-xl">
+                  <div className="text-[10px] uppercase tracking-wider text-orange-300 font-mono">Game NUM asset</div>
+                  {portfolio?.gameNum?.available ? (
+                    <>
+                      <div className="mt-1 text-lg font-black font-mono text-white">{portfolio.gameNum.num} NUM</div>
+                      <div className="mt-1 text-[10px] text-slate-500 font-mono">{portfolio.gameNum.assetUnits} integer asset units</div>
+                      <div className="mt-2 text-xs text-amber-300">
+                        Est. launch reference: £{portfolio.estimatedReferenceValueGbp?.gameNum || '0.00'}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="mt-2 text-xs text-amber-300">{portfolioError || 'Chain balance unavailable'}</div>
+                  )}
+                </div>
+                <div className="game-modal-card p-4 rounded-xl">
+                  <div className="text-[10px] uppercase tracking-wider text-cyan-300 font-mono">Native NUM coin</div>
+                  {portfolio?.nativeNum?.available ? (
+                    <>
+                      <div className="mt-1 text-lg font-black font-mono text-white">{portfolio.nativeNum.num} NUM</div>
+                      <div className="mt-1 text-[10px] text-slate-500 font-mono">
+                        {portfolio.nativeNum.unlockedNum} unlocked · {portfolio.nativeNum.pendingNum} pending
+                      </div>
+                      <div className="mt-2 text-xs text-cyan-300">
+                        Est. launch reference: £{portfolio.estimatedReferenceValueGbp?.nativeNum || '0.00'}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="mt-2 text-xs text-slate-400">
+                      {portfolio?.nativeNum?.error || 'Native wallet RPC unavailable'}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="text-[10px] text-slate-500">
+                Launch reference: £{portfolio?.launchReferenceGbpPerNum || '0.25'} per displayed NUM.
+                Estimated reference value only — not a live exchange rate or guaranteed redemption price.
               </div>
 
               {/* Chain telemetry */}
@@ -381,7 +452,7 @@ const locked = wallet?.lockedBalance ?? 0;
                   <input type="number" placeholder="10.00" value={convertAmount} onChange={(e) => setConvertAmount(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 font-mono text-base text-white" />
                 </div>
                 <div className="pt-2 border-t border-slate-800 text-[11px] font-mono space-y-1">
-                  <div className="flex justify-between text-slate-400"><span>Goldnumista Protocol Fee:</span><span>0.0500 Native NUM + Gas</span></div>
+                  <div className="flex justify-between text-slate-400"><span>Worldtycoon Conversion Fee:</span><span>0.0500 Native NUM + Gas</span></div>
                   <div className="flex justify-between text-orange-400 font-bold"><span>In-Game NUM Credited:</span><span>{Number(convertAmount || 0).toFixed(4)} NUM</span></div>
                 </div>
               </div>

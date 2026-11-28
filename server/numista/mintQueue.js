@@ -120,13 +120,19 @@ class MintQueue {
     steps = [],
     snapshot = null,
     meta = {},
+    idempotencyKey = null,
     requiredConfirmations = CONFIG.CHAIN.CONFIRMATIONS
   }) {
     if (!type) throw new Error('Job type is required');
     if (!Array.isArray(steps) || steps.length === 0) throw new Error('Job must have at least one step');
+    if (idempotencyKey) {
+      const existing = [...this.jobs, ...this.history].find(job => job.idempotencyKey === idempotencyKey);
+      if (existing) return existing;
+    }
 
     const job = {
       id: `job_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+      idempotencyKey,
       type,
       username: username || null,
       plotId,

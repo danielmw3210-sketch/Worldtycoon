@@ -9,9 +9,8 @@ import { CONFIG } from './config.js';
 import { gameStore } from './data/store.js';
 import { numistaRpc } from './numista/rpc.js';
 import { userManager } from './data/users.js';
-import { miningPool } from './mining/pool.js';
+import { pplnsPool, startBuiltInStratumServer } from './mining/stratumServer.js';
 import { stratumBridge } from './mining/stratumBridge.js';
-import { startBuiltInStratumServer } from './mining/stratumServer.js';
 import { cryptoOnramp } from './payment/onramp.js';
 import { stripeOnramp } from './payment/stripeOnramp.js';
 import { RARITY_TIERS } from './data/plotGrid.js';
@@ -959,48 +958,16 @@ app.post('/api/stocks/trade', (req, res) => {
 // IN-BROWSER MINING POOL API
 // ----------------------------------------------------
 
-app.get('/api/mining/job', async (req, res) => {
-  const minerId = req.query.minerId || 'browser-miner-01';
-  const username = req.session?.user?.username || req.query.username || 'anon';
-  const mode = String(req.query?.mode || 'pplns').toLowerCase();const recv = username && username !== 'anon' ? await getOrCreateReceiveAddress(username).catch(() => null) : null;const job = await miningPool.getJob(minerId, username, mode, recv&&recv.address?recv.address:'');
-  res.json(job);
+app.get('/api/mining/job', (req, res) => {
+  res.status(503).json({ error: 'Local mining jobs are disabled; use a trusted external Stratum pool.' });
 });
 
 app.post('/api/mining/submit', async (req, res) => {
   try {
-    const { minerId, jobId, nonce, hash } = req.body;
     const username = requireUser(req, res);
     if (!username) return;
 
-    const result = await miningPool.submitShare({ minerId, jobId, nonce, hash, username });
-    // Credit in-game NUM to each miner's ledger balance (native NUM goes to treasury via block template).
-    // A native transfer is NOT sent per share — coinbase rewards go to the treasury address embedded
-    // in the block template; in-game NUM is then minted proportionally when chainLedger settles.
-    if (result.accepted && result.payouts?.length) {
-      for (const po of result.payouts) {
-        try {
-          const minerUsername = String(po.username || '').toLowerCase();
-          if (po.amount > 0 && minerUsername && minerUsername !== 'anon') {
-            chainLedger.ensure(minerUsername);
-            chainLedger.receiveChain(minerUsername, po.amount);
-            chainLedger.recordChainMove({
-              username: minerUsername,
-              amount: po.amount,
-              description: result.isBlockHit
-                ? 'Mining block reward (PPLNS payout)'
-                : 'Mining share reward',
-              txHash: result.nativeBlockSubmitted ? (result.blockHash || null) : null,
-              status: result.nativeBlockSubmitted ? 'confirmed' : 'local',
-              height: result.blockHeight || null
-            });
-          }
-        } catch (err) {
-          console.warn('[mining] Failed to credit miner', po.username, err.message);
-        }
-      }
-    }
-    result.wallet = walletView(username);
-    res.json(result);
+    res.status(503).json({ accepted: false, error: 'Local share verification and rewards are disabled; use a trusted external Stratum pool.' });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -1029,17 +996,17 @@ app.post('/api/mining/stratum/connect', async (req, res) => {
   }
 });
 
-app.post('/api/mining/stratum/submit', (req, res) => {
+app.post('/api/mining/stratum/submit', async (req, res) => {
   try {
     const username = requireUser(req, res);
     if (!username) return;
-    const status = stratumBridge.submitShare({
+    const result = await stratumBridge.submitShare({
       username,
       jobId: req.body?.jobId,
       nonceHex: req.body?.nonceHex,
       resultHex: req.body?.resultHex
     });
-    res.json({ accepted: true, status });
+    res.json(result);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -1052,8 +1019,8 @@ app.post('/api/mining/stratum/disconnect', (req, res) => {
 });
 
 app.get('/api/mining/stats', (req, res) => {
-  const username = req.session?.user?.username || req.query.username || null;
-  res.json(miningPool.getPoolStats(username));
+  const address = String(req.query.address || '').trim();
+  res.json(pplnsPool.getMinerStats(address));
 });
 
 // ----------------------------------------------------
@@ -2254,7 +2221,7 @@ async function boot() {
     console.warn('[store] Initial deed reconcile failed:', err.message);
   });
 
-  startBuiltInStratumServer();
+  if (process.env.NUMISTA_DISABLE_STRATUM !== '1') startBuiltInStratumServer();
 
   // Load the custodial wallet up front so subaddress and asset operations do
   // not each pay the "No wallet file" retry cost.

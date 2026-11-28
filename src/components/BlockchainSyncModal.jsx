@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import GameSprite from './GameSprite';
+import { resourceIcon } from './sprites';
 import { useGame } from '../context/GameContext';
 import { 
   Server, 
@@ -61,7 +63,7 @@ export default function BlockchainSyncModal() {
                   {network.nettype || 'unknown network'}
                 </span>
               </div>
-              <h2 className="text-xl font-bold text-white mt-1">Online Blockchain Synchronization</h2>
+              <h2 className="text-xl font-bold text-white mt-1 flex items-center gap-2"><GameSprite sprite={resourceIcon('mine_cart')} className="game-art--small" />Online Blockchain Synchronization</h2>
             </div>
           </div>
           <button

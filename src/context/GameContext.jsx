@@ -264,8 +264,31 @@ const register = async (username, password) => {
   }, [plots]);
 
   // Stratum & Solo Mining Lifecycle (Zero HTTP flood)
-  const [stratumEndpoint, setStratumEndpoint] = useState('127.0.0.1:3333');
+  const [stratumEndpoint, setStratumEndpoint] = useState('');
   const [stratumStatus, setStratumStatus] = useState(null);
+
+  useEffect(() => {
+    if (!isMining) return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch('/api/mining/stratum/status', { headers: sessionHeaders() });
+        if (!res.ok) throw new Error('Could not refresh pool status');
+        const status = await res.json();
+        setStratumStatus(status);
+        if (status.connected && status.jobId && status.blob) {
+          workersRef.current.forEach(w => w.postMessage({ type: 'UPDATE_JOB', job: status }));
+        } else if (!status.connected) {
+          stopMiningWorkers();
+          setIsMining(false);
+          setHashrate(0);
+          addToast(status.lastError || 'Stratum pool disconnected', 'error');
+        }
+      } catch (err) {
+        console.warn('[mining] Pool status refresh failed:', err.message);
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [isMining]);
 
   const startMining = async (overrideEndpoint) => {
     try {
@@ -283,17 +306,28 @@ const register = async (username, password) => {
       if (!res.ok) throw new Error(data.error || 'Failed to connect Stratum pool');
       setStratumStatus(data);
       stopMiningWorkers();
-      const job = { jobId: data.jobId || 'stratum-job', blob: data.blob || '', seedHash: data.seedHash || '00'.repeat(32), target: data.target || 'b88d0600' };
+      const job = { jobId: data.jobId, blob: data.blob, seedHash: data.seedHash, target: data.target };
       const wList = [];
       for (let i = 0; i < threads; i++) {
         const w = new Worker(new URL('../workers/miner.worker.js', import.meta.url));
         w.onmessage = async (ev) => {
           if (ev.data.type === 'HASH_STATS') { setTotalHashes(p => p + ev.data.hashes); setHashrate(ev.data.hashrate * threads); }
-          else if (ev.data.type === 'SHARE_FOUND') {
+          else if (ev.data.type === 'ERROR') {
+            addToast(ev.data.message, 'error');
+            stopMining();
+          } else if (ev.data.type === 'SHARE_FOUND') {
             try {
               const sr = await fetch('/api/mining/stratum/submit', { method: 'POST', headers: sessionHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ jobId: ev.data.jobId, nonceHex: ev.data.nonceHex, resultHex: ev.data.resultHex }) });
-              if (sr.ok) { const sd = await sr.json(); setSharesSubmitted(p => p + 1); if (sd.status) { setStratumStatus(sd.status); if (sd.status.jobId && sd.status.blob) workersRef.current.forEach(wk => wk.postMessage({ type: 'UPDATE_JOB', job: sd.status })); } }
-            } catch {}
+              const sd = await sr.json();
+              if (!sr.ok) throw new Error(sd.error || 'Share submission failed');
+              if (sd.accepted) setSharesSubmitted(p => p + 1);
+              if (sd.status) {
+                setStratumStatus(sd.status);
+                if (sd.status.jobId && sd.status.blob) workersRef.current.forEach(wk => wk.postMessage({ type: 'UPDATE_JOB', job: sd.status }));
+              }
+            } catch (err) {
+              console.warn('[mining] Share submission failed:', err.message);
+            }
           }
         };
         w.postMessage({ type: 'START', job });

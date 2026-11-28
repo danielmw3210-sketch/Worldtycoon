@@ -357,17 +357,12 @@ private node/wallet service:
    reduce update latency, but it is a lossy notification stream and must be
    reconciled against daemon RPC.
 
-There is no browser-miner protocol or public mining service implemented in
-this repository. If the game adds one, use an explicit opt-in, a visible
-on/off control, and a user-configurable CPU/time cap. The browser worker
-should communicate only with the authenticated game backend over TLS; it
-must never receive daemon credentials or call unrestricted daemon RPC.
-The backend obtains mining templates from its private daemon, issues bounded
-jobs to opted-in workers, validates returned candidates, and submits valid
-blocks through the daemon's `submit_block` method. Treat workers and their
-results as untrusted, expire jobs on tip changes, and report accepted/rejected
-results transparently. This project does not define the game-side job/share
-protocol, worker implementation, or mining economics.
+The browser miner connects through the backend to a user-selected external
+Stratum pool; share acceptance is reported from the pool response, not assumed.
+The built-in pool and legacy local mining job and submission APIs are disabled:
+they do not verify RandomX shares or safely settle confirmed block rewards.
+See [MINING_LIMITATIONS.md](./MINING_LIMITATIONS.md) before enabling any local
+pool implementation. Keep daemon and wallet RPC credentials private.
 
 ## ZMQ notifications
 

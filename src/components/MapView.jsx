@@ -4,7 +4,7 @@ import 'leaflet/dist/leaflet.css';
 import { useGame } from '../context/GameContext';
 import { createUkGridLayer } from './UkGridLayer';
 import GameSprite from './GameSprite';
-import { buildingSprite, spritePosition } from './sprites';
+import { buildingSprite, grandCastleSprite, spritePosition } from './sprites';
 import {
   Landmark,
   MapPin,
@@ -72,7 +72,9 @@ function getPlotBuildings(plot) {
   const buildings = [];
   const seen = new Set();
   const add = building => {
-    const sprite = buildingSprite(building);
+    const sprite = plot.isCastle && building.type === 'castle_keep'
+      ? grandCastleSprite(plot.id)
+      : buildingSprite(building);
     if (!sprite || seen.has(building.type)) return;
     seen.add(building.type);
     buildings.push({ ...building, sprite });
@@ -318,8 +320,9 @@ export default function MapView() {
       ).join(', ');
 
       visibleBuildings.forEach((building, index) => {
-        const width = zoom >= 11 ? 40 : 48;
-        const height = zoom >= 11 ? 54 : 64;
+        const isCastleSprite = building.sprite.sheet === 'castle';
+        const width = isCastleSprite ? (zoom >= 11 ? 56 : 60) : (zoom >= 11 ? 40 : 48);
+        const height = isCastleSprite ? width : (zoom >= 11 ? 54 : 64);
         const offset = zoom >= 11
           ? (index - (visibleBuildings.length - 1) / 2) * 28
           : 0;
@@ -330,7 +333,7 @@ export default function MapView() {
           : '';
         const icon = L.divIcon({
           className: 'plot-building-icon',
-          html: `<span class="plot-building-marker" title="${escapeMapText(title)}" aria-label="${escapeMapText(title)}"><span class="plot-building-sprite" style="background-position:${position}"></span>${badge}</span>`,
+          html: `<span class="plot-building-marker" title="${escapeMapText(title)}" aria-label="${escapeMapText(title)}"><span class="plot-building-sprite plot-building-sprite--${building.sprite.sheet}" style="background-position:${position}"></span>${badge}</span>`,
           iconSize: [width, height],
           iconAnchor: [width / 2 - offset, height * 0.88]
         });

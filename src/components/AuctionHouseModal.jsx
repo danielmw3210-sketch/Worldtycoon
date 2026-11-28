@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useGame } from '../context/GameContext';
+import GameSprite from './GameSprite';
+import { townSprite } from './sprites';
 import { Gavel, Coins, Clock, Plus, ShoppingBag, X } from 'lucide-react';
 
 export default function AuctionHouseModal() {
@@ -74,7 +76,7 @@ export default function AuctionHouseModal() {
       <div className="bg-[#161d2a] border border-slate-700 w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[88vh]">
         <div className="p-4 bg-slate-900 border-b border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <Gavel className="w-5 h-5 text-amber-400" />
+            <GameSprite sprite={townSprite('auction_house')} className="game-art--small" />
             <div><h2 className="text-base font-black text-white">Universal Asset Auction House</h2><p className="text-[11px] text-slate-400">Trade Plots, Pre-1920 Coins & Peerage Titles · 5% Sovereign Vault Tax</p></div>
           </div>
           <div className="flex items-center gap-2">

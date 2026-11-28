@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useGame } from '../context/GameContext';
 import GameSprite from './GameSprite';
-import { buildingSprite } from './sprites';
+import { buildingSprite, resourceIcon } from './sprites';
 import {
   Building2,
   Landmark,
@@ -352,7 +352,7 @@ export default function PlotDetailsModal() {
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {Object.entries(selectedPlot.resourceDeposits || {}).filter(([, amount]) => Number(amount) > 0).map(([resource, amount]) => (
-                    <span key={resource} className="px-2.5 py-1 rounded-lg bg-slate-800/70 border border-slate-700 text-xs text-slate-200 capitalize">{resource} deposit · {Number(amount).toLocaleString()}</span>
+                    <span key={resource} className="pr-2.5 pl-1 py-1 rounded-lg bg-slate-800/70 border border-slate-700 text-xs text-slate-200 capitalize inline-flex items-center gap-1.5"><GameSprite sprite={resourceIcon(resource)} className="game-art--tiny" />{resource} deposit · {Number(amount).toLocaleString()}</span>
                   ))}
                 </div>
                 <p className="text-[11px] text-slate-500 font-mono pt-1">
@@ -472,7 +472,7 @@ export default function PlotDetailsModal() {
                       <div><h4 className="text-sm font-bold text-emerald-200">Settlement & Resources</h4><p className="text-[10px] text-slate-400">Settlement level {building.level} · {availableBuildingSlots} open building slot(s)</p></div>
                     </div>
                     <div className="flex flex-wrap gap-1.5">
-                      {Object.entries(selectedPlot.stockpile || {}).map(([resource, amount]) => <span key={resource} className="px-2 py-1 rounded bg-slate-950/70 border border-slate-800 text-[10px] text-slate-300 capitalize">{resource}: {Number(amount || 0).toFixed(1)}</span>)}
+                      {Object.entries(selectedPlot.stockpile || {}).map(([resource, amount]) => <span key={resource} className="pr-2 pl-1 py-0.5 rounded bg-slate-950/70 border border-slate-800 text-[10px] text-slate-300 capitalize inline-flex items-center gap-1"><GameSprite sprite={resourceIcon(resource)} className="game-art--tiny" />{Number(amount || 0).toFixed(1)}</span>)}
                     </div>
                     <div className="grid sm:grid-cols-2 gap-2">{(selectedPlot.structures || []).map((structure, index) => <div key={`${structure.type}-${index}`} className="game-modal-card rounded-lg p-2 flex items-center gap-2 text-xs text-slate-200"><GameSprite sprite={buildingSprite(structure)} className="game-art--small" /><span>{structure.name} {structure.resource ? <span className="block text-emerald-300">Extracts {structure.resource} at {structure.outputPerHour}/h</span> : ''}</span></div>)}</div>
                     {isOwner && <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">

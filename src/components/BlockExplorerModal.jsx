@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import GameSprite from './GameSprite';
+import { treasureSprite } from './sprites';
 import { useGame } from '../context/GameContext';
 import {
   Search,
@@ -115,7 +117,7 @@ export default function BlockExplorerModal() {
                   {status?.nettype || 'unknown network'}
                 </span>
               </div>
-              <h2 className="text-xl font-black text-white mt-0.5">On-Chain Ledger & Proofs</h2>
+              <h2 className="text-xl font-black text-white mt-0.5 flex items-center gap-2"><GameSprite sprite={treasureSprite('deed_scroll')} className="game-art--small" />On-Chain Ledger & Proofs</h2>
             </div>
           </div>
 

@@ -14,11 +14,12 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { CONFIG } from '../config.js';
+import { buildingSprite, grandCastleSprite, itemSprite, resourceIcon, spriteReference } from '../../src/components/sprites.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const METADATA_DIR = path.join(__dirname, 'nftMetadata');
 
-export const DEED_SCHEMA = 'townforge.numista.deed/v1';
+export const DEED_SCHEMA = 'townforge.numista.deed/v2';
 export const CURRENCY_SCHEMA = 'townforge.numista.currency/v1';
 export const APP_ID = 'townforge-numista';
 
@@ -93,8 +94,19 @@ export function deedMetadata(plot) {
     rarityName: plot.rarityName,
     price: plot.price,
     buildingType: plot.buildingType || plot.building?.type || null,
+    sprite: spriteReference(
+      plot.isCastle || plot.building?.settlementForm === 'castle'
+        ? grandCastleSprite(plot.id)
+        : buildingSprite({ type: plot.buildingType || plot.building?.type })
+    ),
     image: `https://townforge.local/deeds/${plot.id}.png`
   };
+}
+
+/** Sprite reference for non-deed assets (coins, bars, battle reports). */
+export function assetSprite(kind, key) {
+  const sprite = kind === 'item' ? itemSprite(key) : kind === 'resource' ? resourceIcon(key) : buildingSprite({ type: key });
+  return spriteReference(sprite);
 }
 
 export function metadataHash(metadata) {

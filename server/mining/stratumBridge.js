@@ -40,7 +40,6 @@ class StratumBridgeManager {
       jobId: s.job?.job_id || null,
       blob: s.job?.blob || '',
       seedHash: s.job?.seed_hash || '',
-      target: s.job?.target || 'b88d0600',
       height: s.job?.height || 0,
       target: s.job?.target || null,
       acceptedShares: s.acceptedShares,
@@ -50,14 +49,15 @@ class StratumBridgeManager {
     };
   }
 
-  submitShare({ username, jobId, nonceHex, resultHex }) {
+  async submitShare({ username, jobId, nonceHex, resultHex }) {
     const clean = String(username || '').trim().toLowerCase();
     const s = this.sessions.get(clean);
     if (!s || !s.connected || !s.socket || !s.rpcId) {
       throw new Error('Stratum session not connected');
     }
+    const id = s.nextRequestId++;
     const payload = JSON.stringify({
-      id: 4,
+      id,
       jsonrpc: '2.0',
       method: 'submit',
       params: {
@@ -67,9 +67,21 @@ class StratumBridgeManager {
         result: String(resultHex || '')
       }
     }) + '\n';
-    s.socket.write(payload);
-    s.acceptedShares += 1;
-    return this.getStatus(clean);
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        s.pendingSubmissions.delete(id);
+        reject(new Error('Timed out waiting for pool share response'));
+      }, 12000);
+      s.pendingSubmissions.set(id, { resolve, reject, timer });
+      s.socket.write(payload, err => {
+        if (!err) return;
+        const pending = s.pendingSubmissions.get(id);
+        if (!pending) return;
+        clearTimeout(pending.timer);
+        s.pendingSubmissions.delete(id);
+        reject(err);
+      });
+    });
   }
 
   disconnect(username) {
@@ -77,6 +89,11 @@ class StratumBridgeManager {
     const s = this.sessions.get(clean);
     if (s) {
       if (s.keepaliveTimer) clearInterval(s.keepaliveTimer);
+      for (const pending of s.pendingSubmissions.values()) {
+        clearTimeout(pending.timer);
+        pending.reject(new Error('Stratum session disconnected before pool response'));
+      }
+      s.pendingSubmissions.clear();
       try { s.socket?.destroy(); } catch {}
       this.sessions.delete(clean);
     }
@@ -91,7 +108,11 @@ class StratumBridgeManager {
     const [host, portStr] = raw.split(':');
     const port = Number(portStr || 3333);
     if (!host || !Number.isInteger(port) || port < 1 || port > 65535) {
-      throw new Error('Enter a valid Stratum pool endpoint as host:port (e.g. ://example.com)');
+      throw new Error('Enter a valid Stratum pool endpoint as host:port (e.g. pool.example.com:3333)');
+    }
+    const builtInPort = Number(process.env.NUMISTA_STRATUM_PORT || 3333);
+    if (!['127.0.0.1', 'localhost', '::1'].includes(host.toLowerCase()) || port !== builtInPort) {
+      throw new Error(`Only the built-in pool is allowed (127.0.0.1:${builtInPort})`);
     }
     if (!loginAddress) {
       throw new Error('Player native Sb... address not ready yet; refresh wallet first');
@@ -121,14 +142,15 @@ class StratumBridgeManager {
         rejectedShares: 0,
         lastError: null,
         connectedAt: null,
-        keepaliveTimer: null
+        keepaliveTimer: null,
+        nextRequestId: 3,
+        pendingSubmissions: new Map()
       };
       this.sessions.set(clean, session);
 
       socket.setTimeout(12000);
 
       socket.on('connect', () => {
-        socket.setTimeout(0);
         const loginPayload = JSON.stringify({
           id: 1,
           jsonrpc: '2.0',
@@ -152,6 +174,16 @@ class StratumBridgeManager {
           try {
             const msg = JSON.parse(line);
             if (msg.id === 1 && msg.result) {
+              if (!msg.result.id || !msg.result.job) {
+                session.lastError = 'Stratum login response is missing a session ID or job';
+                this.disconnect(clean);
+                if (!settled) {
+                  settled = true;
+                  reject(new Error(session.lastError));
+                }
+                continue;
+              }
+              socket.setTimeout(0);
               session.connected = true;
               session.connectedAt = new Date().toISOString();
               session.rpcId = msg.result.id || null;
@@ -182,14 +214,27 @@ class StratumBridgeManager {
               }
             } else if (msg.method === 'job' && msg.params) {
               session.job = msg.params;
+            } else if (session.pendingSubmissions.has(msg.id)) {
+              const pending = session.pendingSubmissions.get(msg.id);
+              session.pendingSubmissions.delete(msg.id);
+              clearTimeout(pending.timer);
+              const accepted = !msg.error && msg.result?.status === 'OK';
+              if (accepted) session.acceptedShares += 1;
+              else session.rejectedShares += 1;
+              session.lastError = accepted ? null : (msg.error?.message || 'Pool rejected share');
+              pending.resolve({ accepted, error: session.lastError, status: this.getStatus(clean) });
             }
-          } catch {}
+          } catch (err) {
+            session.lastError = `Invalid Stratum message: ${err.message}`;
+            console.warn('[stratum-bridge]', session.lastError);
+          }
         }
       });
 
       socket.on('timeout', () => {
         const errMsg = `Connection timed out reaching Stratum pool ${host}:${port}`;
-        this.disconnect(clean);
+        session.lastError = errMsg;
+        if (this.sessions.get(clean) === session) this.disconnect(clean);
         if (!settled) {
           settled = true;
           reject(new Error(errMsg));
@@ -198,7 +243,8 @@ class StratumBridgeManager {
 
       socket.on('error', (err) => {
         const errMsg = `Stratum socket error (${host}:${port}): ${err.message}`;
-        this.disconnect(clean);
+        session.lastError = errMsg;
+        if (this.sessions.get(clean) === session) this.disconnect(clean);
         if (!settled) {
           settled = true;
           reject(new Error(errMsg));
@@ -208,6 +254,15 @@ class StratumBridgeManager {
       socket.on('close', () => {
         session.connected = false;
         if (session.keepaliveTimer) clearInterval(session.keepaliveTimer);
+        for (const pending of session.pendingSubmissions.values()) {
+          clearTimeout(pending.timer);
+          pending.reject(new Error('Stratum connection closed before pool response'));
+        }
+        session.pendingSubmissions.clear();
+        if (!settled) {
+          settled = true;
+          reject(new Error('Stratum connection closed before login completed'));
+        }
       });
 
       socket.connect(port, host);

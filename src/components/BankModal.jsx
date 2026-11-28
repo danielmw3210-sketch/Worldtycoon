@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useGame } from '../context/GameContext';
+import GameSprite from './GameSprite';
+import { townSprite } from './sprites';
 import { 
   Landmark, 
   Coins, 
@@ -146,7 +148,7 @@ export default function BankModal() {
                 </span>
                 <span className="text-xs text-slate-400 font-mono">Lombard Vaults Protocol</span>
               </div>
-              <h2 className="text-2xl font-black text-white mt-1">Numista Bullion & Reserve Bank</h2>
+              <div className="flex items-center gap-3 mt-1"><GameSprite sprite={townSprite('bank')} className="game-art--small" /><h2 className="text-2xl font-black text-white">Numista Bullion & Reserve Bank</h2></div>
             </div>
           </div>
           <button

@@ -1,5 +1,7 @@
 import React from 'react';
 import { User, X, MapPin, Crown, Coins, ShieldCheck } from 'lucide-react';
+import GameSprite from './GameSprite';
+import { treasureSprite } from './sprites';
 import { useGame } from '../context/GameContext';
 
 export default function AccountModal() {
@@ -15,7 +17,7 @@ export default function AccountModal() {
   return <div className="fixed inset-0 z-50 flex items-center justify-center p-4 game-modal-backdrop">
     <section className="game-modal-panel w-full max-w-lg rounded-2xl overflow-y-auto">
       <header className="game-modal-header flex items-center justify-between p-5">
-        <div className="flex items-center gap-3"><User className="w-6 h-6 text-orange-300" /><div><h2 className="text-lg font-black text-white">Account</h2><p className="text-xs text-slate-400">{user?.title ? <><span className="text-amber-300">{user.title.split(' / ')[0]}</span> · </> : null}@{user?.username}</p></div></div>
+        <div className="flex items-center gap-3"><GameSprite sprite={treasureSprite('signet_ring')} className="game-art--small" /><div><h2 className="text-lg font-black text-white">Account</h2><p className="text-xs text-slate-400">{user?.title ? <><span className="text-amber-300">{user.title.split(' / ')[0]}</span> · </> : null}@{user?.username}</p></div></div>
         <button onClick={() => setActiveModal(null)} className="game-modal-close" aria-label="Close"><X className="w-4 h-4" /></button>
       </header>
       <div className="p-5 space-y-4">

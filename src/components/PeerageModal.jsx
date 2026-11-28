@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Crown, X } from 'lucide-react';
 import { useGame } from '../context/GameContext';
+import GameSprite from './GameSprite';
+import { townSprite } from './sprites';
 
 const titles = [
   { key: 'baron', name: 'Baron / Baroness', price: 10 },
@@ -62,7 +64,7 @@ export default function PeerageModal() {
   return <div className="fixed inset-0 z-50 flex items-center justify-center p-4 game-modal-backdrop">
     <section className="game-modal-panel w-full max-w-xl rounded-2xl overflow-hidden">
       <header className="game-modal-header flex items-center justify-between p-5">
-        <div className="flex items-center gap-3"><div className="rounded-xl border border-amber-500/25 bg-amber-950/40 p-2.5"><Crown className="w-6 h-6 text-amber-300" /></div><div><h2 className="text-lg font-black text-white">Peerage</h2><p className="text-xs text-slate-400">Your title appears beside @{user?.username} and unlocks recruitment.</p></div></div>
+        <div className="flex items-center gap-3"><GameSprite sprite={townSprite('throne_hall')} className="game-art--small" /><div><h2 className="text-lg font-black text-white">Peerage</h2><p className="text-xs text-slate-400">Your title appears beside @{user?.username} and unlocks recruitment.</p></div></div>
         <button onClick={() => setActiveModal(null)} className="game-modal-close" aria-label="Close"><X className="w-4 h-4" /></button>
       </header>
       <div className="p-5 space-y-4">

@@ -108,6 +108,17 @@
   border-radius: 20%;
 }
 
+.plot-building-sprite--town {
+  background-image: url('/assets/town-atlas.png?v=2');
+  background-size: 400% 400%;
+}
+
+.plot-building-sprite--castle {
+  background-image: url('/assets/castle-atlas.png?v=2');
+  background-size: 400% 400%;
+  border-radius: 0;
+}
+
 .plot-building-count {
   position: absolute;
   top: 0;
@@ -279,9 +290,43 @@
   background-size: 400% 400%;
 }
 
+.game-art--town {
+  background-image: url('/assets/town-atlas.png?v=1');
+  background-size: 400% 400%;
+}
+
+.game-art--castle {
+  background-image: url('/assets/castle-atlas.png?v=1');
+  background-size: 400% 400%;
+}
+
+.game-art--treasure {
+  background-image: url('/assets/treasure-atlas.png?v=1');
+  background-size: 400% 400%;
+}
+
+.game-art--resource {
+  background-image: url('/assets/resource-atlas.png?v=1');
+  background-size: 400% 400%;
+  box-shadow: none;
+  filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.6));
+}
+
+.game-art--town,
+.game-art--castle,
+.game-art--treasure {
+  box-shadow: none;
+  filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.6));
+}
+
 .game-art--small {
   width: 3rem;
   height: 3rem;
+}
+
+.game-art--tiny {
+  width: 1.75rem;
+  height: 1.75rem;
 }
 
 .game-art--large {

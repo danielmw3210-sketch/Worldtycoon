@@ -962,7 +962,7 @@ class NumistaRpcBridge {
   // ── Daemon: mining ────────────────────────────────────────────────────────
 
   async submitBlock(blockBlobHex) {
-    const result = await this._daemonRaw('submit_block', [blockBlobHex]);
+    const result = await this._daemonJsonRpc('submit_block', [blockBlobHex]);
     if (result.status !== 'OK') throw new Error(`submit_block failed: ${JSON.stringify(result)}`);
     return result;
   }

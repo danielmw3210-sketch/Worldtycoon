@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { useGame } from '../context/GameContext';
-import { Search, Blocks, Hash, Coins, MapPin, User, X } from 'lucide-react';
+import { Search, Hash, Coins, MapPin, User, X } from 'lucide-react';
+import GameSprite from './GameSprite';
+import { townSprite } from './sprites';
 
 export default function ExplorerModal() {
   const { setActiveModal, network } = useGame();
@@ -27,7 +29,7 @@ export default function ExplorerModal() {
       <div className="bg-[#161d2a] border border-cyan-500/40 w-full max-w-3xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[88vh]">
         <div className="p-4 bg-slate-900 border-b border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <Blocks className="w-5 h-5 text-cyan-400" />
+            <GameSprite sprite={townSprite('library')} className="game-art--small" />
             <div><h2 className="text-base font-black text-white">Numista Blockchain & Asset Explorer</h2><p className="text-[11px] text-slate-400">Verify any Block Height, Block/Tx Hash, Coin Serial, Plot Deed, @Handle, or Sb.../UGN... Address</p></div>
           </div>
           <button onClick={() => setActiveModal(null)} className="p-1.5 rounded-lg bg-slate-800 text-slate-400 hover:text-white"><X className="w-4 h-4" /></button>

@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { BarChart3, RefreshCw, ShieldCheck, X, Coins, Pickaxe, CreditCard } from 'lucide-react';
+import { RefreshCw, ShieldCheck, X, Coins, Pickaxe, CreditCard } from 'lucide-react';
 import { useGame } from '../context/GameContext';
+import GameSprite from './GameSprite';
+import { resourceIcon } from './sprites';
 
 function Metric({ label, value, detail, icon: Icon, tone = 'orange' }) {
   const tones = {
@@ -66,9 +68,7 @@ export default function AdminModal() {
       <section className="game-modal-panel w-full max-w-4xl max-h-[92vh] overflow-y-auto rounded-2xl text-white">
         <header className="game-modal-header flex items-center justify-between p-5">
           <div className="flex items-center gap-3">
-            <div className="rounded-xl border border-orange-500/25 bg-orange-950/40 p-2.5">
-              <BarChart3 className="w-6 h-6 text-orange-300" />
-            </div>
+            <GameSprite sprite={resourceIcon('vault')} className="game-art--large" />
             <div>
               <h2 className="text-lg font-black">Administrator Treasury</h2>
               <p className="text-xs text-slate-400">Worldtycoon supply and purchase telemetry</p>

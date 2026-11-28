@@ -26,6 +26,7 @@ import {
   deedAssetId,
   deedMetadata,
   metadataHash,
+  assetSprite,
   sha256Hex,
   saveDeedMetadata,
   readDeedMetadata,
@@ -513,12 +514,12 @@ class GameStore {
       metal,
       form,
       purity: purityValue,
-      unit: '0.001 fine grams'
+      unit: '0.001 fine grams',
+      sprite: assetSprite('resource', `${metal}_${form === 'bar' ? 'bar' : 'coin'}`)
     };
     const assetId = sha256Hex(`goldnumista:plot-metal:v1:${plot.id}:${metal}:${form}:${purityValue}`);
-    const assetMetadataHash = metadataHash(metadata);
     saveDeedMetadata(assetId, metadata);
-    const registrationSteps = this._registrationSteps([clean]);
+    const assetMetadataHash = readDeedMetadata(assetId)?.metadataHash || metadataHash(metadata);
     const snapshot = {
       metal,
       weightGrams: weight,
@@ -868,7 +869,7 @@ class GameStore {
         armor: itemIsUsable(soldier.armor) ? 1 : 0,
         helmet: itemIsUsable(soldier.helmet) ? 1 : 0
       }));
-    const report = { app: 'townforge-numista', schema: 'townforge.numista.battle/v1', battleId, randomSeed, at, attacker, defender, armyId: army.id, plotId: target.id, attackerRoster: soldiers.map(summarizeSoldier), defenderRoster: defendingSoldiers.map(summarizeSoldier), defenderState: { controller: target.controller || target.castleOwner || target.owner || TREASURY, garrison: garrisonBefore, fortificationLevel: target.fortificationLevel || 0, plotHealth: healthBefore, maxHealth: target.maxHealth || (target.isCastle ? 1000 : 100) }, attackerPower, defenderPower: defense, plotHealthBefore: healthBefore, plotDamage: damage, garrisonDamage, casualtyEvents, equipmentWear, captured, isCastle: !!target.isCastle, survivors: attackerSurvivors };
+    const report = { app: 'townforge-numista', schema: 'townforge.numista.battle/v1', sprite: assetSprite('item', 'knight'), battleId, randomSeed, at, attacker, defender, armyId: army.id, plotId: target.id, attackerRoster: soldiers.map(summarizeSoldier), defenderRoster: defendingSoldiers.map(summarizeSoldier), defenderState: { controller: target.controller || target.castleOwner || target.owner || TREASURY, garrison: garrisonBefore, fortificationLevel: target.fortificationLevel || 0, plotHealth: healthBefore, maxHealth: target.maxHealth || (target.isCastle ? 1000 : 100) }, attackerPower, defenderPower: defense, plotHealthBefore: healthBefore, plotDamage: damage, garrisonDamage, casualtyEvents, equipmentWear, captured, isCastle: !!target.isCastle, survivors: attackerSurvivors };
     const assetId = sha256Hex(`townforge-numista:battle:v1:${battleId}`);
     const hash = metadataHash(report);
     let registrationSteps = [];
@@ -1048,7 +1049,7 @@ class GameStore {
 
         const building = candidate.job?.snapshot?.building || this._claimBuilding(plot, candidate.job?.snapshot?.cost);
         const metadata = deedMetadata({ ...plot, buildingType: building?.type || null });
-        const hash = candidate.job?.snapshot?.metadataHash || metadataHash(metadata);
+        const hash = candidate.job?.snapshot?.metadataHash || readDeedMetadata(candidate.assetId || deedAssetId(plot.id))?.metadataHash || metadataHash(metadata);
         const mintedAt = candidate.mint?.submittedAt || asset.created_at || new Date().toISOString();
 
         plot.isClaimed = true;
@@ -1309,8 +1310,9 @@ class GameStore {
 
     const assetId = deedAssetId(plot.id);
     const metadata = deedMetadata({ ...plot, buildingType: building.type });
-    const hash = metadataHash(metadata);
     saveDeedMetadata(assetId, metadata);
+    // Existing metadata is immutable, so a re-claimed deed keeps its original committed hash.
+    const hash = readDeedMetadata(assetId)?.metadataHash || metadataHash(metadata);
 
     const snapshot = {
       plotId: plot.id,
@@ -2642,6 +2644,7 @@ class GameStore {
           tokenId: job.assetId,
           metadataHash: job.snapshot?.metadataHash ||
             plot.nftState?.metadataHash ||
+            readDeedMetadata(job.assetId)?.metadataHash ||
             metadataHash(deedMetadata({ ...plot, buildingType: plot.building?.type || null })),
           mintedAt: new Date().toISOString(),
           txHash: mint?.txHash || null,

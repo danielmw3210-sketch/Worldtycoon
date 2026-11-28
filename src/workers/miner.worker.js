@@ -18,12 +18,25 @@ function bytesToHex(bytes) {
   return s;
 }
 
+function shareTarget(target) {
+  if (!/^(?:[0-9a-f]{8}|[0-9a-f]{16})$/i.test(String(target || ''))) {
+    throw new Error('Pool provided an unsupported share target');
+  }
+  const bytes = hexToBytes(target);
+  let value = 0n;
+  for (let i = bytes.length - 1; i >= 0; i--) value = (value << 8n) | BigInt(bytes[i]);
+  return { value, bytes: bytes.length };
+}
+
 async function ensureRandomX(seedHex) {
+  if (!/^[0-9a-f]{64}$/i.test(String(seedHex || ''))) {
+    throw new Error('Pool provided an invalid RandomX seed');
+  }
   if (!rxMod) {
     importScripts('/randomx.js');
     rxMem = new WebAssembly.Memory({ initial: 5120, maximum: 32768 }); rxMod = await createRandomXModule({ wasmMemory: rxMem, locateFile: (f) => '/' + f });
   }
-  const seedBytes = hexToBytes(seedHex || '00'.repeat(32));
+  const seedBytes = hexToBytes(seedHex);
   const seedPtr = rxMod._malloc(32);
   new Uint8Array(rxMem.buffer).set(seedBytes.subarray(0, 32), seedPtr);
   const rc = rxMod._rx_init(seedPtr, 32);
@@ -38,11 +51,11 @@ async function runMiningLoop() {
     if (!isMining || !rxReady) return;
   }
 
-  const blobBytes = hexToBytes(currentJob.blob || '00'.repeat(76));
+  const blobBytes = hexToBytes(currentJob.blob);
   if (blobBytes.length < 43) {
-    setTimeout(runMiningLoop, 500);
-    return;
+    throw new Error('Pool provided an invalid mining blob');
   }
+  const target = shareTarget(currentJob.target);
 
   const inPtr = rxMod._rx_get_input_ptr();
   const outPtr = rxMod._rx_get_output_ptr();
@@ -61,11 +74,9 @@ async function runMiningLoop() {
     rxMod._rx_hash(blobBytes.length);
     hashesCalculated++;
 
-    // Read 64-bit little-endian top word of 32-byte RandomX output (bytes 24..31)
-    const dv = new DataView(rxMem.buffer, outPtr + 24, 8);
-    const top64 = dv.getBigUint64(0, true);
-    // Share target (~1 in 128 RandomX hashes submits a valid PPLNS share; full block target also checked on daemon)
-    if (top64 < 0x0200000000000000n) {
+    const dv = new DataView(rxMem.buffer, outPtr + 32 - target.bytes, target.bytes);
+    const top = target.bytes === 4 ? BigInt(dv.getUint32(0, true)) : dv.getBigUint64(0, true);
+    if (top < target.value) {
       const nonceHex = bytesToHex(new Uint8Array(rxMem.buffer).subarray(inPtr + 39, inPtr + 43));
       const resultHex = bytesToHex(new Uint8Array(rxMem.buffer).subarray(outPtr, outPtr + 32));
       self.postMessage({ type: 'SHARE_FOUND', jobId: currentJob.jobId, nonceHex, resultHex });
@@ -80,7 +91,12 @@ async function runMiningLoop() {
     lastReportTime = now;
   }
 
-  if (isMining) setTimeout(runMiningLoop, 0);
+  if (isMining) setTimeout(() => runMiningLoop().catch(reportError), 0);
+}
+
+function reportError(err) {
+  isMining = false;
+  self.postMessage({ type: 'ERROR', message: err.message });
 }
 
 self.onmessage = async function (e) {
@@ -91,7 +107,7 @@ self.onmessage = async function (e) {
     rxReady = false;
     hashesCalculated = 0;
     lastReportTime = performance.now();
-    runMiningLoop();
+    runMiningLoop().catch(reportError);
   } else if (type === 'UPDATE_JOB') {
     const seedChanged = currentJob?.seedHash !== job?.seedHash;
     currentJob = job;

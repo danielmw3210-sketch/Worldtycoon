@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildingSprite, itemSprite, resourceSprite, spritePosition } from './sprites.js';
+import { buildingSprite, itemSprite, resourceSprite, spritePosition, townSprite, treasureSprite, grandCastleSprite, resourceIcon, metalAssetSprite } from './sprites.js';
 
 test('settlement artwork follows the level 5 and level 10 milestones', () => {
   assert.deepEqual(buildingSprite({ type: 'peasant_lodge', level: 4 }).position, [2, 1]);
@@ -19,4 +19,20 @@ test('resources, equipment, and metal outputs use their matching atlas cells', (
   assert.equal(spritePosition(buildingSprite({ type: 'gold_coin' })), '75% 100%');
   assert.equal(spritePosition(itemSprite('cavalry')), `${100 / 3}% ${200 / 3}%`);
   assert.equal(buildingSprite({ type: 'unknown' }), null);
+  assert.equal(spritePosition(townSprite('well')), '100% 100%');
+  assert.equal(spritePosition(itemSprite('crown_coin')), '100% 100%');
+  assert.equal(townSprite('unknown'), null);
+});
+
+test('grand castle and treasure sprites', () => {
+  assert.deepEqual(grandCastleSprite('plot-1'), grandCastleSprite('plot-1'));
+  assert.equal(grandCastleSprite('x').sheet, 'castle');
+  assert.equal(spritePosition(treasureSprite('mining_rig')), '100% 100%');
+  assert.equal(treasureSprite('nope'), null);
+});
+
+test('resource atlas icons and metal asset sprites', () => {
+  assert.equal(spritePosition(resourceIcon('mine_cart')), '100% 100%');
+  assert.deepEqual(metalAssetSprite('gold', 'bar'), resourceIcon('gold_bar'));
+  assert.deepEqual(metalAssetSprite('silver', 'coin'), resourceIcon('silver_coin'));
 });

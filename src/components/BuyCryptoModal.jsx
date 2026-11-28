@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import GameSprite from './GameSprite';
+import { treasureSprite } from './sprites';
 import { useGame } from '../context/GameContext';
 import { 
   CreditCard,
@@ -107,7 +109,7 @@ export default function BuyCryptoModal() {
                 </span>
                 <span className="text-xs text-slate-400 font-mono">Instant Delivery</span>
               </div>
-              <h2 className="text-2xl font-black text-white mt-1">Buy Numista Coin (NUM)</h2>
+              <h2 className="text-2xl font-black text-white mt-1 flex items-center gap-2"><GameSprite sprite={treasureSprite('treasure_chest')} className="game-art--small" />Buy Numista Coin (NUM)</h2>
             </div>
           </div>
           <button

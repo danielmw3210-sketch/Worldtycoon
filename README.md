@@ -35,7 +35,9 @@ the Numista testnet asset and wallet RPCs.
   auctions, coin collections, account/deed views, and blockchain explorers.
 - **Mining:** A RandomX worker can connect to a configured Stratum endpoint;
   the interface also provides a solo-mining command. Mining requires a usable
-  Numista node/pool and wallet address.
+  Numista node/pool and wallet address. The built-in pool and legacy local
+  share API are disabled because their share verification and payout
+  accounting are not production-ready; use a trusted external pool instead.
 - **Chain modes:** Use a local simulated chain for development, or connect a
   compatible Numista testnet daemon and wallet RPC for live testnet operations.
 

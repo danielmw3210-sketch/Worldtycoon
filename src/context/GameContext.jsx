@@ -41,7 +41,7 @@ export function GameProvider({ children }) {
     ticker: "NUM",
     claimPrice: 50,
     online: false,
-    daemonAddress: "http://127.0.0.1:48081",
+    daemonAddress: "",
     confirmationsRequired: 10,
     chain: null,
     crownEstateFund: null,
@@ -204,7 +204,7 @@ const register = async (username, password) => {
           ...data.config,
           chain: data.chain || null,
           crownEstateFund: data.crownEstateFund || null,
-          daemonAddress: data.network?.daemonAddress || "http://127.0.0.1:48081",
+          daemonAddress: data.network?.daemonAddress || "",
           details: null
         });
       }

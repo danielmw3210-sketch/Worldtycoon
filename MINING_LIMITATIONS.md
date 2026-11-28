@@ -1,6 +1,7 @@
 # Mining limitations and blockchain-side requirements
 
-The project is experimental and currently targets a Numista testnet.
+The project is experimental and targets Numista mainnet, with simulation and
+testnet available separately.
 
 ## Current behavior
 
@@ -34,6 +35,5 @@ the quote endpoint. It is `0.025`, so Â£1 quotes as 40 NUM. Stripe Checkout is
 implemented behind environment gates. Order completion is driven only by a
 signed Stripe webhook; the legacy client completion route is disabled. Live
 checkout requires explicit operator flags, `NUMISTA_NETWORK=mainnet`, and a live
-chain connection. The current checked-in network defaults remain testnet, so
-live payments must remain disabled until mainnet and treasury inventory are
-verified.
+chain connection. Live payments must remain disabled until mainnet and treasury
+inventory are verified and the operational review is complete.

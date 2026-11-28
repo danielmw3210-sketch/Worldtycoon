@@ -16,7 +16,7 @@ import {
 export default function BlockchainSyncModal() {
   const { network, user, refreshNetwork, setActiveModal, addToast } = useGame();
   
-  const [nodeUrl, setNodeUrl] = useState(network.daemonAddress || 'http://127.0.0.1:48081');
+  const [nodeUrl, setNodeUrl] = useState(network.daemonAddress || '');
   const [updating, setUpdating] = useState(false);
 
   const handleUpdateNode = async () => {
@@ -33,7 +33,7 @@ export default function BlockchainSyncModal() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
 
-      addToast(`Connected to Numista Node: ${nodeUrl}`, 'success');
+      addToast('Daemon URL updated; chain transactions still use the server-configured endpoint.', 'info');
       await refreshNetwork();
     } catch (err) {
       addToast(err.message, 'error');
@@ -43,6 +43,11 @@ export default function BlockchainSyncModal() {
   };
 
   const sync = network.syncStatus || {};
+  const simulated = network.chain?.mode === 'simulate';
+  const syncLabel = simulated ? 'SIMULATED CHAIN' : !network.online ? 'DAEMON OFFLINE' :
+    sync.synchronized === true ? 'SYNCHRONIZED' : sync.synchronized === false ? 'SYNCHRONIZING' : 'SYNC STATUS UNKNOWN';
+  const progress = network.online && !simulated && Number.isFinite(Number(sync.syncPercentage))
+    ? Math.max(0, Math.min(100, Number(sync.syncPercentage))) : 0;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn">
@@ -82,21 +87,22 @@ export default function BlockchainSyncModal() {
             <div className="flex items-center justify-between">
               <span className="text-xs font-mono uppercase text-slate-400">Sync Status</span>
               <span className={`px-2.5 py-0.5 rounded-full text-xs font-mono font-bold flex items-center space-x-1 ${
-                network.online ? 'bg-emerald-950 text-emerald-400 border border-emerald-700' : 'bg-amber-950 text-amber-400 border border-amber-700'
+                network.online && (simulated || sync.synchronized === true) ? 'bg-emerald-950 text-emerald-400 border border-emerald-700' : 'bg-amber-950 text-amber-400 border border-amber-700'
               }`}>
                 <span className={`w-2 h-2 rounded-full mr-1.5 ${network.online ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`}></span>
-                {network.online ? '100% SYNCHRONIZED' : 'CONNECTING TO BLOCKCHAIN...'}
+                {syncLabel}
               </span>
             </div>
+            {network.chain && <p className="text-[11px] text-slate-400">Chain operations: {network.chain.mode} · {network.chain.reason}</p>}
 
             {/* Height Progress */}
             <div className="space-y-1">
               <div className="flex justify-between text-xs font-mono">
                 <span className="text-slate-400">Current Block Height:</span>
-                <span className="text-white font-bold text-base">#{network.height || 115}</span>
+                <span className="text-white font-bold text-base">{network.height != null ? `#${network.height}` : '—'}</span>
               </div>
               <div className="w-full bg-slate-950 h-2 rounded-full overflow-hidden border border-slate-800">
-                <div className="bg-gradient-to-r from-cyan-500 to-emerald-400 h-full w-full rounded-full"></div>
+                <div className="bg-gradient-to-r from-cyan-500 to-emerald-400 h-full rounded-full" style={{ width: `${progress}%` }}></div>
               </div>
             </div>
 
@@ -104,7 +110,7 @@ export default function BlockchainSyncModal() {
             <div className="pt-2 border-t border-slate-800/80 text-[11px] font-mono text-slate-400 space-y-1">
               <div>Top Block Hash:</div>
               <div className="text-slate-200 bg-slate-950 p-2 rounded border border-slate-800 break-all select-all">
-                {network.topBlockHash || 'f576b2c020ab988f517af17a0266b53dd343f4f8995773afb98ae7ce2aae9386'}
+                {network.topBlockHash || 'Unavailable'}
               </div>
             </div>
           </div>
@@ -114,13 +120,13 @@ export default function BlockchainSyncModal() {
             <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800">
               <span className="text-slate-400 block text-[10px]">NETWORK DIFFICULTY</span>
               <span className="text-base font-bold text-white mt-0.5 block">
-                {network.difficulty?.toLocaleString() || '15,719'}
+                {network.difficulty?.toLocaleString() ?? '—'}
               </span>
             </div>
             <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800">
               <span className="text-slate-400 block text-[10px]">TX POOL SIZE</span>
               <span className="text-base font-bold text-cyan-400 mt-0.5 block">
-                {network.txPoolSize ?? network?.details?.network?.txPoolSize ?? 0}
+                {network.txPoolSize ?? network?.details?.network?.txPoolSize ?? '—'}
               </span>
             </div>
             <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800">
@@ -132,7 +138,7 @@ export default function BlockchainSyncModal() {
             <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800">
               <span className="text-slate-400 block text-[10px]">TARGET BLOCK TIME</span>
               <span className="text-base font-bold text-cyan-400 mt-0.5 block">
-                {network.target || 120}s
+                {network.target != null ? `${network.target}s` : '—'}
               </span>
             </div>
           </div>
@@ -186,7 +192,7 @@ export default function BlockchainSyncModal() {
                 type="text"
                 value={nodeUrl}
                 onChange={(e) => setNodeUrl(e.target.value.trim())}
-                placeholder="http://127.0.0.1:48081 or http://remote-node:48081"
+                placeholder="Configured private daemon RPC URL"
                 className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs font-mono text-white focus:outline-none focus:border-cyan-500"
               />
               <button
@@ -199,7 +205,7 @@ export default function BlockchainSyncModal() {
               </button>
             </div>
             <span className="text-[10px] text-slate-500 font-mono block">
-              Default: Local offline testnet node for development. Configure the server RPCs for the intended network.
+              This changes the daemon used by the RPC bridge, not the transaction adapter. Configure the mainnet RPCs on the server and restart to change the chain endpoint.
             </span>
           </div>
 

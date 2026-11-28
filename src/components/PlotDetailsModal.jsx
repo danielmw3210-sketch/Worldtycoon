@@ -315,7 +315,7 @@ export default function PlotDetailsModal() {
                 <div>
                   <h4 className="font-bold text-white text-sm">Survey & Claim This {selectedPlot.rarityName} Plot</h4>
                   <p className="text-xs text-slate-300 mt-1 leading-relaxed">
-                    Claiming registers the deed to <strong>@{user?.username || 'you'}</strong>, gives you a Peasant Lodge and this plot’s resource deposits, and starts a small NUM income stream.
+                    Claiming registers the deed to <strong>@{user?.username || 'you'}</strong>, gives you a Peasant Lodge and free wood production, and starts a small NUM income stream.
                   </p>
                 </div>
               </div>
@@ -351,12 +351,12 @@ export default function PlotDetailsModal() {
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {Object.entries(selectedPlot.resourceDeposits || {}).filter(([, amount]) => Number(amount) > 0).map(([resource, amount]) => (
-                    <span key={resource} className="pr-2.5 pl-1 py-1 rounded-lg bg-slate-800/70 border border-slate-700 text-xs text-slate-200 capitalize inline-flex items-center gap-1.5"><GameSprite sprite={resourceIcon(resource)} className="game-art--tiny" />{resource} deposit · {Number(amount).toLocaleString()}</span>
+                  {['wood', 'iron', 'tin', 'copper', 'silver', 'gold'].map(resource => (
+                    <span key={resource} className="pr-2.5 pl-1 py-1 rounded-lg bg-slate-800/70 border border-slate-700 text-xs text-slate-200 capitalize inline-flex items-center gap-1.5"><GameSprite sprite={resourceIcon(resource)} className="game-art--tiny" />{resource}</span>
                   ))}
                 </div>
                 <p className="text-[11px] text-slate-500 font-mono pt-1">
-                  The lodge earns a small income. Deposits are randomized when you buy the plot; build mines and workshops to develop them.
+                  Every claimed plot produces 5 wood per hour for free. Build resource structures to produce more; their output scales with settlement level.
                 </p>
               </div>
 
@@ -474,13 +474,15 @@ export default function PlotDetailsModal() {
                     <div className="flex flex-wrap gap-1.5">
                       {Object.entries(selectedPlot.stockpile || {}).map(([resource, amount]) => <span key={resource} className="pr-2 pl-1 py-0.5 rounded bg-slate-950/70 border border-slate-800 text-[10px] text-slate-300 capitalize inline-flex items-center gap-1"><GameSprite sprite={resourceIcon(resource)} className="game-art--tiny" />{Number(amount || 0).toFixed(1)}</span>)}
                     </div>
-                    <div className="grid sm:grid-cols-2 gap-2">{(selectedPlot.structures || []).map((structure, index) => <div key={`${structure.type}-${index}`} className="game-modal-card rounded-lg p-2 flex items-center gap-2 text-xs text-slate-200"><GameSprite sprite={buildingSprite(structure)} className="game-art--small" /><span>{structure.name} {structure.resource ? <span className="block text-emerald-300">Extracts {structure.resource} at {structure.outputPerHour}/h</span> : ''}</span></div>)}</div>
+                    <p className="text-[10px] text-emerald-300">Free wood: 5/h · Resource building output scales with settlement level.</p>
+                    <div className="grid sm:grid-cols-2 gap-2">{(selectedPlot.structures || []).map((structure, index) => <div key={`${structure.type}-${index}`} className="game-modal-card rounded-lg p-2 flex items-center gap-2 text-xs text-slate-200"><GameSprite sprite={buildingSprite(structure)} className="game-art--small" /><span>{structure.name} {structure.resource ? <span className="block text-emerald-300">Produces {structure.resource} at {structure.outputPerHour * (structure.level || 1) * (building.level || 1)}/h</span> : ''}</span></div>)}</div>
                     {isOwner && <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                      {Object.entries(selectedPlot.resourceDeposits || {}).filter(([, amount]) => Number(amount) > 0).map(([resource]) => {
+                      {['wood', 'iron', 'tin', 'copper', 'silver', 'gold'].map(resource => {
                         const type = resource === 'wood' ? 'woodcutter' : `${resource}_mine`;
                         const names = { wood: 'Woodcutter Camp', iron: 'Iron Mine', tin: 'Tin Mine', copper: 'Copper Mine', silver: 'Silver Mine', gold: 'Gold Mine' };
                         return <button key={resource} disabled={buildingStructure === type || availableBuildingSlots === 0} onClick={() => handleBuildStructure(type)} className="p-2 rounded-lg border border-slate-700 bg-slate-950 hover:border-emerald-500/50 disabled:opacity-40 text-left flex items-center gap-2"><GameSprite sprite={buildingSprite({ type })} className="game-art--small" /><span><span className="block text-[11px] font-bold text-white">{buildingStructure === type ? 'Building…' : names[resource] || resource}</span><span className="block text-[9px] text-slate-500">Uses {resource === 'gold' || resource === 'silver' ? 'wood + iron' : 'wood'}</span></span></button>;
                       })}
+                      <button disabled={buildingStructure === 'resource_mint' || availableBuildingSlots === 0 || (selectedPlot.structures || []).some(s => s.type === 'resource_mint')} onClick={() => handleBuildStructure('resource_mint')} className="p-2 rounded-lg border border-slate-700 bg-slate-950 hover:border-emerald-500/50 disabled:opacity-40 text-left flex items-center gap-2"><GameSprite sprite={buildingSprite({ type: 'resource_mint' })} className="game-art--small" /><span><span className="block text-[11px] font-bold text-white">Resource Mint</span><span className="block text-[9px] text-slate-500">12 wood + 2 iron</span></span></button>
                     </div>}
                     {availableBuildingSlots === 0 && <p className="text-[10px] text-amber-300">Upgrade the lodge to unlock another building slot.</p>}
                   </div>

@@ -459,8 +459,8 @@ class ChainAdapter {
           : `daemon did not report its network; expected ${CONFIG.NUMISTA.NETTYPE}`;
         return out;
       }
-      if (info.synchronized === false) {
-        out.reason = 'Numista daemon is not synchronized';
+      if (info.synchronized === false || (mainnet && info.synchronized !== true)) {
+        out.reason = 'Numista daemon synchronization is not confirmed';
         return out;
       }
     } catch (err) {

@@ -18,6 +18,7 @@ const buildings = {
   silver_mine: [4, 2],
   gold_mine: [0, 3],
   forge: [1, 3],
+  resource_mint: [3, 3],
   silver_coin: [2, 3],
   gold_coin: [3, 3],
   metal_bar: [4, 3],

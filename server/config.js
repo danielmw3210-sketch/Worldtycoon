@@ -22,7 +22,7 @@ function loadLocalEnvFile() {
 
 loadLocalEnvFile();
 
-const NUMISTA_NETWORK = String(process.env.NUMISTA_NETWORK || 'testnet').trim().toLowerCase();
+const NUMISTA_NETWORK = String(process.env.NUMISTA_NETWORK || 'mainnet').trim().toLowerCase();
 if (!['mainnet', 'testnet'].includes(NUMISTA_NETWORK)) {
   throw new Error('NUMISTA_NETWORK must be either "mainnet" or "testnet"');
 }
@@ -76,7 +76,7 @@ export const CONFIG = {
     MODE: (process.env.NUMISTA_CHAIN_MODE || "live").toLowerCase(),
     CONFIRMATIONS: Number(process.env.NUMISTA_CONFIRMATIONS || 10),
     POLL_MS: Number(process.env.NUMISTA_QUEUE_POLL_MS || 3000),
-    // Testnet blocks may stall for hours while a transaction remains valid.
+    // Blocks may stall for hours while a transaction remains valid.
     // Keep the reservation alive long enough to avoid declaring a later-mined
     // payment failed; operators can still tune this through the environment.
     TX_TIMEOUT_MS: Number(process.env.NUMISTA_TX_TIMEOUT_MS) || 86_400_000,

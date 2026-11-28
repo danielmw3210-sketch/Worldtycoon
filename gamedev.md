@@ -1,5 +1,10 @@
 # Game integration: Numista testnet RPC
 
+> This page documents the historical testnet setup. The game now defaults to
+> mainnet; do not use these testnet ports, wallets, data directories, or
+> launcher arguments as mainnet settings. See [README.md](./README.md) for the
+> mainnet backend configuration and limitations.
+
 This is a developer reference for connecting a game backend to a
 self-operated Numista testnet node. Numista Coins is experimental; testnet
 balances and assets have no production value. There is no public Numista RPC

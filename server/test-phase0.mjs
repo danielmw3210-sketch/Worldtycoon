@@ -113,7 +113,8 @@ async function main() {
     });
     let daemonNetwork = 'mainnet';
     let assetMatches = true;
-    chainAdapter._daemonRaw = async () => ({ height: 100, synchronized: true, nettype: daemonNetwork });
+    let synchronized = true;
+    chainAdapter._daemonRaw = async () => ({ height: 100, synchronized, nettype: daemonNetwork });
     chainAdapter._daemonJsonRpc = async (method, params) => {
       if (method === 'get_version') return { version: 'mock' };
       if (method === 'get_numista_asset' && params.asset_id === NUM_ASSET_ID) {
@@ -126,6 +127,11 @@ async function main() {
     };
     chainAdapter._walletJsonRpc = async () => ({ version: 'mock' });
     assert.equal((await chainAdapter.probeLive()).ready, true);
+    synchronized = undefined;
+    const unknownSync = await chainAdapter.probeLive();
+    assert.equal(unknownSync.ready, false);
+    assert.match(unknownSync.reason, /synchronization is not confirmed/);
+    synchronized = true;
     assetMatches = false;
     const wrongAsset = await chainAdapter.probeLive();
     assert.equal(wrongAsset.ready, false);
@@ -156,6 +162,56 @@ async function main() {
   check('mainnet readiness verifies configuration, network, and NUM asset identity',
     mainnetProbe.status === 0,
     mainnetProbe.status === 0 ? mainnetProbe.stdout.trim() : mainnetProbe.stderr.trim());
+
+  const missingMainnetConfigScript = `
+    import assert from 'node:assert/strict';
+    import net from 'node:net';
+    const listener = net.createServer();
+    await new Promise(resolve => listener.listen(0, '127.0.0.1', resolve));
+    const port = listener.address().port;
+    await new Promise(resolve => listener.close(resolve));
+    process.env.PORT = String(port);
+    await import('./server/index.js');
+    let response;
+    for (let i = 0; i < 100; i++) {
+      try { response = await fetch('http://127.0.0.1:' + port + '/api/network'); break; }
+      catch { await new Promise(resolve => setTimeout(resolve, 100)); }
+    }
+    assert.ok(response, 'server did not start');
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.equal(result.chain.mode, 'off');
+    assert.equal(result.crownEstateFund.available, false);
+    assert.match(result.crownEstateFund.error, /not configured/);
+    process.exit(0);
+  `;
+  const missingMainnetConfig = spawnSync(process.execPath, ['--input-type=module', '-e', missingMainnetConfigScript], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    timeout: 30000,
+    env: {
+      ...process.env,
+      NUMISTA_NETWORK: 'mainnet',
+      NUMISTA_CHAIN_MODE: 'off',
+      NUMISTA_DISABLE_STRATUM: '1',
+      NUMISTA_DAEMON_RPC: '',
+      NUMISTA_WALLET_RPC: '',
+      NUMISTA_TREASURY_USER: '',
+      NUMISTA_SESSION_SECRET: crypto.randomBytes(32).toString('hex'),
+      NUMISTA_STATE_FILE: path.join(TEMP, 'mainnet-state.json'),
+      NUMISTA_DATABASE_FILE: path.join(TEMP, 'mainnet-state.sqlite'),
+      NUMISTA_LEDGER_FILE: path.join(TEMP, 'mainnet-ledger.json'),
+      NUMISTA_QUEUE_FILE: path.join(TEMP, 'mainnet-queue.json'),
+      NUMISTA_USERS_FILE: path.join(TEMP, 'mainnet-users.json'),
+      NUMISTA_PPLNS_FILE: path.join(TEMP, 'mainnet-pplns.json'),
+      NUMISTA_ONRAMP_ORDERS_FILE: path.join(TEMP, 'mainnet-orders.json'),
+      NUMISTA_METADATA_DIR: path.join(TEMP, 'mainnet-metadata'),
+      NUMISTA_ONRAMP_TEST_ENABLED: '0',
+      NUMISTA_ONRAMP_LIVE_ENABLED: '0'
+    }
+  });
+  check('unconfigured mainnet reports unavailable treasury without failing network status',
+    missingMainnetConfig.status === 0, missingMainnetConfig.status === 0 ? '' : missingMainnetConfig.stderr.trim());
 
   const stripeTestEnv = {
     STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
@@ -222,6 +278,9 @@ async function main() {
       NUMISTA_SIM_TREASURY: '5000',
       NUMISTA_CHAIN_MODE: 'simulate',
       NUMISTA_ALLOW_DEV_RPC: '1',
+      NUMISTA_DISABLE_STRATUM: '1',
+      NUMISTA_DAEMON_RPC: 'http://127.0.0.1:1',
+      NUMISTA_WALLET_RPC: 'http://127.0.0.1:1',
       NUMISTA_NETWORK: 'testnet',
       NUMISTA_ONRAMP_TEST_ENABLED: '1',
       NUMISTA_ONRAMP_LIVE_ENABLED: '0',
@@ -235,8 +294,10 @@ async function main() {
       NUMISTA_SIM_FILE: path.join(TEMP, 'simChain.json'),
       NUMISTA_LEDGER_FILE: path.join(TEMP, 'ledgerState.json'),
       NUMISTA_QUEUE_FILE: path.join(TEMP, 'mintQueue.json'),
+      NUMISTA_PPLNS_FILE: path.join(TEMP, 'pplnsStratum.json'),
       NUMISTA_STATE_FILE: path.join(TEMP, 'gameState.json'),
       NUMISTA_DATABASE_FILE: path.join(TEMP, 'gameState.sqlite'),
+      NUMISTA_METADATA_DIR: path.join(TEMP, 'nftMetadata'),
       NUMISTA_USERS_FILE: path.join(TEMP, 'users.json')
     },
     stdio: ['ignore', 'pipe', 'pipe']
@@ -255,6 +316,11 @@ async function main() {
     const caps = await api('/api/network/capabilities');
     check('chain mode is simulate', caps.json?.capabilities?.mode === 'simulate', caps.json?.capabilities?.reason);
     check('10 confirmations required', caps.json?.capabilities?.confirmationsRequired === 10);
+    const simulatedNetwork = await api('/api/network');
+    check('simulated network is identified without live daemon metrics',
+      simulatedNetwork.json?.network?.nettype === 'simulated' &&
+      simulatedNetwork.json?.network?.mode === 'simulated' &&
+      !simulatedNetwork.json?.network?.topBlockHash);
     const gbpQuote = await api('/api/onramp/quote', {
       method: 'POST', body: { currency: 'GBP', fiatAmount: 1 }
     });
@@ -432,6 +498,15 @@ async function main() {
     check('plot shows on-chain deed', afterClaim.json.plot.nftState?.stage === 'onchain', afterClaim.json.plot.nftState?.stage);
     check('deed has real tx hash', /^[a-f0-9]{64}$/.test(afterClaim.json.plot.nftState?.txHash || ''), afterClaim.json.plot.nftState?.txHash);
     check('deed confirmed at 10 confirmations', afterClaim.json.plot.nftState?.confirmations === 10);
+    const beforeFreeWood = Number(afterClaim.json.plot.stockpile.wood);
+    await api('/api/dev/sim/tick', { method: 'POST', user: 'danie', body: { ticks: 240 } });
+    const freeWoodPlot = (await api(`/api/plots/${target.id}`)).json.plot;
+    check('plot produces exactly 5 free wood per hour without a woodcutter',
+      Math.abs(Number(freeWoodPlot.stockpile.wood) - beforeFreeWood - 5) < 0.00001);
+    const noMintBuilding = await api(`/api/plots/${target.id}/resource-mint`, {
+      method: 'POST', user: 'danie', body: { resource: 'wood', amount: 0.01 }
+    });
+    check('resource mint requires a Resource Mint building', noMintBuilding.status === 400);
 
     const meta = await api(`/api/deeds/${afterClaim.json.plot.nftState.assetId}/metadata`);
     check('deed metadata served', meta.status === 200 && meta.json?.verified === true);
@@ -478,6 +553,36 @@ async function main() {
       method: 'POST', user: 'danie', body: { structureType: `${metal}_mine` }
     });
     check('owner can build a precious-metal mine', mine.status === 200, mine.json?.error || '');
+    const mintBuilding = await api(`/api/plots/${target.id}/build`, {
+      method: 'POST', user: 'danie', body: { structureType: 'resource_mint' }
+    });
+    check('owner can build a Resource Mint', mintBuilding.status === 200, mintBuilding.json?.error || '');
+    const resourceDenied = await api(`/api/plots/${target.id}/resource-mint`, {
+      method: 'POST', user: 'mercantile', body: { resource: 'wood', amount: 0.01 }
+    });
+    check('non-owner cannot mint resources', resourceDenied.status === 400);
+    const invalidQuantity = await api(`/api/plots/${target.id}/resource-mint`, {
+      method: 'POST', user: 'danie', body: { resource: 'wood', amount: 0.0009 }
+    });
+    check('resource mint rejects sub-unit precision', invalidQuantity.status === 400);
+    const woodMint = await api(`/api/plots/${target.id}/resource-mint`, {
+      method: 'POST', user: 'danie', body: { resource: 'wood', amount: 0.01 }
+    });
+    check('wood resource mint is queued', woodMint.status === 200 && woodMint.json?.pending, woodMint.json?.error || '');
+    const woodMintJob = await waitForJob(woodMint.json.job.id, j => ['confirmed', 'reverted', 'failed'].includes(j.status));
+    check('wood resource mint confirms', woodMintJob.status === 'confirmed', woodMintJob.failure || '');
+    const woodBalance = await api(`/api/assets/${woodMint.json.assetId}/balance/danie`);
+    check('wood resource asset contains the exact minted units', Number(woodBalance.json?.balanceUnits) === 10);
+    const stockBeforeFailure = Number((await api(`/api/plots/${target.id}`)).json.plot.stockpile.wood);
+    await api('/api/dev/sim/fail', { method: 'POST', user: 'danie', body: { count: 1 } });
+    const failingMint = await api(`/api/plots/${target.id}/resource-mint`, {
+      method: 'POST', user: 'danie', body: { resource: 'wood', amount: 0.01 }
+    });
+    check('failing resource mint reserves stock', failingMint.status === 200 &&
+      Number(failingMint.json.plot.stockpile.wood) < stockBeforeFailure, failingMint.json?.error || '');
+    const failedResourceJob = await waitForJob(failingMint.json.job.id, j => ['confirmed', 'reverted', 'failed'].includes(j.status));
+    check('failed resource mint returns stock', failedResourceJob.status === 'failed' &&
+      Number((await api(`/api/plots/${target.id}`)).json.plot.stockpile.wood) >= stockBeforeFailure);
 
     const deniedMetalMint = await api(`/api/plots/${target.id}/metal-mint`, {
       method: 'POST', user: 'mercantile',
@@ -510,8 +615,8 @@ async function main() {
        metalMetadata.json?.metadata?.plotId === target.id));
     const metalBalance = await api(`/api/assets/${metalMint.json.assetId}/balance/danie`);
     check('metal asset minted to the owner', Number(metalBalance.json?.balance) > 0);
+    check('metal stock is reserved at mint submission', Number(metalMint.json.plot.stockpile[metal]) < metalBeforeMint);
     const resourceAfterMint = (await api(`/api/plots/${target.id}`)).json.plot;
-    check('metal stock is consumed only after mint submission', Number(resourceAfterMint.stockpile[metal]) < metalBeforeMint);
     check('metal asset mint does not replace the plot deed', resourceAfterMint.nftState?.assetId === afterClaim.json.plot.nftState.assetId);
 
     /* ---- 6. forged gear and silver-paid army dispatch ---- */
@@ -609,7 +714,38 @@ async function main() {
       Number(paidAssetBalance.json?.balanceUnits) === Number(metalBalance.json?.balanceUnits) - 10);
     const marchingArmy = (await api('/api/army', { user: 'danie' })).json?.army?.armies?.find(a => a.id === armyId);
     check('army begins marching only after payroll confirms', marchingArmy?.status === 'marching_to_siege');
-
+    await api('/api/dev/sim/tick', { method: 'POST', user: 'danie', body: { ticks: 480 } });
+    const woodBuilding = await api(`/api/plots/${target.id}/build`, {
+      method: 'POST', user: 'danie', body: { structureType: 'woodcutter' }
+    });
+    check('woodcutter can be built on a settlement', woodBuilding.status === 200, woodBuilding.json?.error || '');
+    await api('/api/dev/sim/tick', { method: 'POST', user: 'danie', body: { ticks: 240 } });
+    const ironBuilding = await api(`/api/plots/${target.id}/build`, {
+      method: 'POST', user: 'danie', body: { structureType: 'iron_mine' }
+    });
+    check('iron mine can be built regardless of legacy deposits', ironBuilding.status === 200, ironBuilding.json?.error || '');
+    await api('/api/dev/sim/tick', { method: 'POST', user: 'danie', body: { ticks: 240 } });
+    for (const resource of ['tin', 'copper', 'gold']) {
+      const built = await api(`/api/plots/${target.id}/build`, {
+        method: 'POST', user: 'danie', body: { structureType: `${resource}_mine` }
+      });
+      check(`${resource} mine can be built regardless of legacy deposits`, built.status === 200, built.json?.error || '');
+    }
+    const beforeProduction = (await api(`/api/plots/${target.id}`)).json.plot;
+    await api('/api/dev/sim/tick', { method: 'POST', user: 'danie', body: { ticks: 240 } });
+    const afterProduction = (await api(`/api/plots/${target.id}`)).json.plot;
+    for (const [resource, expected] of Object.entries({ wood: 155, iron: 80, tin: 70, copper: 60, silver: 35, gold: 20 })) {
+      check(`${resource} production scales with settlement level`,
+        Math.abs(afterProduction.stockpile[resource] - beforeProduction.stockpile[resource] - expected) < 0.0001);
+      const issued = await api(`/api/plots/${target.id}/resource-mint`, {
+        method: 'POST', user: 'danie', body: { resource, amount: 0.01 }
+      });
+      check(`${resource} resource mint is queued`, issued.status === 200 && issued.json?.pending, issued.json?.error || '');
+      const issuedJob = await waitForJob(issued.json.job.id, j => ['confirmed', 'failed', 'reverted'].includes(j.status));
+      check(`${resource} resource mint confirms`, issuedJob.status === 'confirmed', issuedJob.failure || '');
+    }
+    check('unlimited production does not deplete legacy deposits',
+      JSON.stringify(afterProduction.resourceDeposits) === JSON.stringify(beforeProduction.resourceDeposits));
     let battle = null;
     for (let i = 0; i < 150 && !battle; i++) {
       const currentArmy = await api('/api/army', { user: 'danie' });
@@ -855,6 +991,11 @@ async function main() {
     });
     check('new player builds a silver mine on the upgraded plot',
       journeyMine.status === 200, journeyMine.json?.error || '');
+    await api('/api/dev/sim/tick', { method: 'POST', user: 'danie', body: { ticks: 240 } });
+    const journeyMintBuilding = await api(`/api/plots/${journeyHome.id}/build`, {
+      method: 'POST', user: journeyUser, body: { structureType: 'resource_mint' }
+    });
+    check('new player builds a Resource Mint', journeyMintBuilding.status === 200, journeyMintBuilding.json?.error || '');
     const fastForward = await api('/api/dev/sim/tick', {
       method: 'POST', user: 'danie', body: { ticks: 30 }
     });
@@ -864,10 +1005,10 @@ async function main() {
     check('silver mine produces enough stock for an asset mint',
       Number(journeyResources?.stockpile?.silver) >= 0.2,
       String(journeyResources?.stockpile?.silver));
-    const journeyMint = await api(`/api/plots/${journeyHome.id}/metal-mint`, {
+    const journeyMint = await api(`/api/plots/${journeyHome.id}/resource-mint`, {
       method: 'POST',
       user: journeyUser,
-      body: { metal: 'silver', form: 'coin', weightGrams: 0.2, purity: 0.999 }
+      body: { resource: 'silver', amount: 0.2 }
     });
     check('new player mints silver from the plot mine',
       journeyMint.status === 200 && journeyMint.json?.pending, journeyMint.json?.error || '');

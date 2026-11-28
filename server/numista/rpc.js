@@ -3,9 +3,9 @@
  * ─────────────────────────────────────────────────────────────────────────────
  * Telemetry and wallet I/O for the live Numista (Monero-fork) node.
  *
- * Daemon RPC  → http://127.0.0.1:48081   (monerod --numista-testnet)
- * Wallet RPC  → operator-chosen port (48083 by default). Note: 48082 is the
- *               daemon's ZMQ port on Numista testnet, not wallet RPC.
+ * Mainnet daemon and wallet RPC endpoints are configured by the operator.
+ * Testnet defaults use daemon port 48081 and wallet RPC port 48083; port
+ * 48082 is the testnet daemon's ZMQ port, not wallet RPC.
  *
  * Game balances live in the on-chain NUM asset (see chainLedger / chainAdapter).
  * Deeds are Numista assets too — this file deliberately contains NO tx_extra NFT
@@ -459,10 +459,12 @@ class NumistaRpcBridge {
       this.lastChecked = new Date().toISOString();
 
       const target = data.target_height > 0 ? data.target_height : data.height;
-      const pct = target > 0 ? Math.min(100, +((data.height / target) * 100).toFixed(1)) : 100;
+      const pct = data.target_height > 0
+        ? Math.min(100, +((data.height / data.target_height) * 100).toFixed(1))
+        : data.synchronized === true ? 100 : null;
 
       this.syncStatus = {
-        synchronized: data.synchronized !== undefined ? data.synchronized : true,
+        synchronized: typeof data.synchronized === 'boolean' ? data.synchronized : null,
         height: data.height,
         targetHeight: target,
         syncPercentage: pct,
@@ -491,9 +493,9 @@ class NumistaRpcBridge {
         height: this.liveInfo.height,
         difficulty: this.liveInfo.difficulty,
         topBlockHash: this.liveInfo.top_block_hash,
-        txPoolSize: this.liveInfo.tx_pool_size || 0,
+        txPoolSize: this.liveInfo.tx_pool_size ?? null,
         version: this.liveInfo.version,
-        target: this.liveInfo.target || 120,
+        target: this.liveInfo.target ?? null,
         syncStatus: this.syncStatus,
         daemonAddress: this.daemonUrl
       };

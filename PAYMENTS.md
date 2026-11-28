@@ -27,8 +27,8 @@ RPC, issuer, treasury-address, or currency-asset fallbacks, and live chain
 readiness requires the daemon to report `mainnet` or `numista-mainnet`
 explicitly and verifies the configured currency asset is the expected fungible
 NUM asset. Live order creation also checks the synchronized daemon's network.
-This repository's defaults remain testnet, so live checkout should currently
-stay disabled.
+Mainnet is now the default network, but live checkout must stay disabled until
+the readiness checks and operational review below are complete.
 
 In Stripe, register the endpoint `<public-base-url>/api/onramp/webhook` and
 subscribe it to:
@@ -68,8 +68,8 @@ and are never automatically resent.
    configured by `NUMISTA_ONRAMP_ORDERS_FILE`). It contains order and delivery
    state needed for idempotent fulfillment and recovery.
 
-This is not a declaration that the current testnet or game token has real-world
-value, nor that the app is ready to accept live payments.
+This is not a declaration of the game token's value or that the app is ready
+to accept live payments.
 
 The systemd daemon and wallet-RPC units in `deploy/` are testnet-specific.
 Do not use them for mainnet; provision separate services with the official

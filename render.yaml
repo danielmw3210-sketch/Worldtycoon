@@ -10,6 +10,8 @@ services:
         value: production
       - key: NUMISTA_CHAIN_MODE
         value: live
+      - key: NUMISTA_NETWORK
+        value: mainnet
       - key: NUMISTA_DAEMON_RPC
         sync: false
       - key: NUMISTA_WALLET_RPC
@@ -19,12 +21,16 @@ services:
       - key: NUMISTA_RPC_PASS
         sync: false
       - key: NUMISTA_ISSUER_WALLET
-        value: goldnumista
+        sync: false
       - key: NUMISTA_ISSUER_WALLET_PASSWORD
         sync: false
       - key: NUMISTA_ISSUER_PUBLIC_KEY
-        value: c98dc334ccfb8ecfc6f40557823b7702dbe3caaa1202d50eb84424925748e30d
+        sync: false
       - key: NUMISTA_TREASURY_USER
-        value: crown_treasury
+        sync: false
+      - key: NUMISTA_TREASURY_ADDRESS
+        sync: false
+      - key: NUMISTA_CURRENCY_ASSET_ID
+        sync: false
       - key: NUMISTA_ADMINS
         value: danie,d4kkkkkkkkkkkkkkkkkk

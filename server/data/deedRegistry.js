@@ -17,7 +17,7 @@ import { CONFIG } from '../config.js';
 import { buildingSprite, grandCastleSprite, itemSprite, resourceIcon, spriteReference } from '../../src/components/sprites.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-export const METADATA_DIR = path.join(__dirname, 'nftMetadata');
+export const METADATA_DIR = process.env.NUMISTA_METADATA_DIR || path.join(__dirname, 'nftMetadata');
 
 export const DEED_SCHEMA = 'townforge.numista.deed/v2';
 export const CURRENCY_SCHEMA = 'townforge.numista.currency/v1';

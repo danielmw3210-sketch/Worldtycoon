@@ -19,6 +19,8 @@ export default function ResourceManagementModal() {
     watchJob
   } = useGame();
   const [metal, setMetal] = useState('silver');
+  const [resource, setResource] = useState('wood');
+  const [mintMode, setMintMode] = useState('resource');
   const [form, setForm] = useState('coin');
   const [weightGrams, setWeightGrams] = useState('1');
   const [purity, setPurity] = useState('0.999');
@@ -32,6 +34,8 @@ export default function ResourceManagementModal() {
   const isOwner = !!user?.username && plot?.owner?.replace(/^@/, '').toLowerCase() === user.username.toLowerCase();
   const stockpile = plot?.stockpile || {};
   const metalStock = Number(stockpile[metal]) || 0;
+  const resourceStock = Number(stockpile[resource]) || 0;
+  const hasMint = (plot?.structures || []).some(structure => structure.type === 'resource_mint');
   const ownedPlots = plots.filter(item => item.isClaimed && item.owner?.replace(/^@/, '').toLowerCase() === user?.username?.toLowerCase());
   const fineGrams = (Number(weightGrams) || 0) * (Number(purity) || 0);
   const stockEntries = [
@@ -68,13 +72,15 @@ export default function ResourceManagementModal() {
     if (!plot?.id || !isOwner) return;
     setMinting(true);
     try {
-      const response = await fetch(`/api/plots/${encodeURIComponent(plot.id)}/metal-mint`, {
+      const response = await fetch(`/api/plots/${encodeURIComponent(plot.id)}/${mintMode === 'resource' ? 'resource-mint' : 'metal-mint'}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${user?.token || ''}`
         },
-        body: JSON.stringify({
+        body: JSON.stringify(mintMode === 'resource' ? {
+          resource, amount: Number(weightGrams)
+        } : {
           metal,
           form,
           weightGrams: Number(weightGrams),
@@ -82,19 +88,19 @@ export default function ResourceManagementModal() {
         })
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Could not mint metal asset');
+      if (!response.ok) throw new Error(data.error || 'Could not mint asset');
 
       setActiveJob(data.job);
-      addToast(`${data.fineWeightGrams} fine grams queued for owner-issued ${metal} ${form}`, 'success');
+      addToast(mintMode === 'resource' ? `${data.amount} ${resource} queued for minting` : `${data.fineWeightGrams} fine grams queued for owner-issued ${metal} ${form}`, 'success');
       await refreshPlots();
       watchJob(data.job?.id).then(async job => {
         await refreshPlots();
         if (job?.status === 'confirmed') {
-          addToast(`${metal[0].toUpperCase()}${metal.slice(1)} ${form} asset minted to your blockchain account`, 'success');
+          addToast('Asset minted to your blockchain account', 'success');
         }
       });
     } catch (error) {
-      addToast(error.message || 'Could not mint metal asset', 'error');
+      addToast(error.message || 'Could not mint asset', 'error');
     } finally {
       setMinting(false);
     }
@@ -123,23 +129,23 @@ export default function ResourceManagementModal() {
           <section className="p-4 rounded-xl bg-slate-900 border border-slate-800">
             <h3 className="font-bold flex items-center gap-2"><Hammer size={16} />Stored resources</h3>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-3">
-              {stockEntries.map(([resource, amount]) => {
-                const isMetal = METALS.includes(resource);
-                const selected = isMetal && resource === metal;
+              {stockEntries.map(([stockResource, amount]) => {
+                const selectable = RESOURCE_ORDER.includes(stockResource);
+                const selected = mintMode === 'resource' ? stockResource === resource : stockResource === metal;
                 const empty = !(Number(amount) > 0);
-                const Card = isMetal ? 'button' : 'div';
+                const Card = selectable ? 'button' : 'div';
                 return (
                   <Card
-                    key={resource}
-                    type={isMetal ? 'button' : undefined}
-                    onClick={isMetal ? () => setMetal(resource) : undefined}
-                    className={`game-modal-card p-3 rounded-xl flex items-center gap-3 min-w-0 text-left transition ${selected ? 'ring-2 ring-amber-400' : ''} ${empty ? 'opacity-60' : ''} ${isMetal ? 'hover:brightness-125 cursor-pointer' : ''}`}
+                    key={stockResource}
+                    type={selectable ? 'button' : undefined}
+                    onClick={selectable ? () => { setResource(stockResource); setMintMode('resource'); } : undefined}
+                    className={`game-modal-card p-3 rounded-xl flex items-center gap-3 min-w-0 text-left transition ${selected ? 'ring-2 ring-amber-400' : ''} ${empty ? 'opacity-60' : ''} ${selectable ? 'hover:brightness-125 cursor-pointer' : ''}`}
                   >
-                    <GameSprite sprite={resourceIcon(resource)} className="game-art--small" />
+                    <GameSprite sprite={resourceIcon(stockResource)} className="game-art--small" />
                     <div className="min-w-0">
-                      <div className="text-[10px] uppercase tracking-wide text-slate-400">{resource}</div>
-                      <div className="font-mono font-bold text-emerald-200">{Number(amount || 0).toFixed(3)}{isMetal ? <span className="text-[10px] text-slate-400"> g</span> : null}</div>
-                      {isMetal ? <div className="text-[9px] text-amber-300/80">{selected ? 'selected for minting' : 'tap to mint'}</div> : null}
+                      <div className="text-[10px] uppercase tracking-wide text-slate-400">{stockResource}</div>
+                      <div className="font-mono font-bold text-emerald-200">{Number(amount || 0).toFixed(3)}</div>
+                      {selectable ? <div className="text-[9px] text-amber-300/80">{selected ? 'selected for minting' : 'tap to mint'}</div> : null}
                     </div>
                   </Card>
                 );
@@ -151,26 +157,38 @@ export default function ResourceManagementModal() {
                   <GameSprite sprite={buildingSprite(structure)} className="game-art--small" />
                   <span>{structure.name}
                   {structure.resource && (
-                    <span className="block text-emerald-300">{structure.resource === 'wood' ? 'renewable' : 'finite'} production · {structure.outputPerHour}/h</span>
+                    <span className="block text-emerald-300">renewable production · {structure.outputPerHour * (structure.level || 1) * (plot.building?.level || 1)}/h</span>
                   )}</span>
                 </div>
               ))}
             </div>
-            {Object.keys(plot.resourceDeposits || {}).length > 0 && (
-              <p className="mt-3 text-[10px] text-slate-500">
-                Remaining finite deposits: {Object.entries(plot.resourceDeposits).map(([key, value]) => `${key} ${Number(value).toFixed(1)}`).join(' · ')}
-              </p>
-            )}
+            <p className="mt-3 text-[10px] text-slate-400">Every claimed plot also produces 5 wood/hour for free.</p>
           </section>
 
           <form onSubmit={handleMint} className="p-4 rounded-xl bg-amber-950/20 border border-amber-700/40 space-y-3">
             <div className="flex items-center gap-3 text-amber-200 font-bold">
               <GameSprite sprite={resourceIcon('anvil')} className="game-art--small" />
-              <span className="flex items-center gap-2"><Coins size={16} />Issue metal asset to blockchain</span>
+              <span className="flex items-center gap-2"><Coins size={16} />Issue asset to blockchain</span>
             </div>
             <p className="text-xs text-slate-300">
-              Mint stored silver or gold as a coin or bar asset directly to your blockchain account. This is owner-authorized and does not require Crown approval or a NUM minting fee. Stock is reserved while the chain confirms.
+              A Resource Mint is required. Mint any stored resource as fungible units, or issue silver and gold as coins or bars. Stock is reserved while the chain confirms.
             </p>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setMintMode('resource')} className={`px-3 py-2 rounded border ${mintMode === 'resource' ? 'border-amber-400' : 'border-slate-700'}`}>Resource units</button>
+              <button type="button" onClick={() => setMintMode('metal')} className={`px-3 py-2 rounded border ${mintMode === 'metal' ? 'border-amber-400' : 'border-slate-700'}`}>Silver/gold coins and bars</button>
+            </div>
+            {mintMode === 'resource' ? (
+              <div className="grid grid-cols-2 gap-3">
+                <label className="text-xs text-slate-400">Resource
+                  <select value={resource} onChange={event => setResource(event.target.value)} className="mt-1 w-full p-2 rounded bg-slate-950 border border-slate-700 text-white">
+                    {RESOURCE_ORDER.map(value => <option key={value} value={value}>{value}</option>)}
+                  </select>
+                </label>
+                <label className="text-xs text-slate-400">Amount (available: {resourceStock.toFixed(3)})
+                  <input type="number" min="0.001" max={Math.min(resourceStock, 1000)} step="0.001" required value={weightGrams} onChange={event => setWeightGrams(event.target.value)} className="mt-1 w-full p-2 rounded bg-slate-950 border border-slate-700 text-white" />
+                </label>
+              </div>
+            ) : <>
             <div className="flex items-center gap-4 rounded-xl bg-black/30 border border-amber-700/30 p-3">
               <GameSprite sprite={metalAssetSprite(metal, form)} className="game-art--large" />
               <div className="min-w-0">
@@ -203,12 +221,12 @@ export default function ResourceManagementModal() {
               </div>
               <label className="text-xs text-slate-400">
                 Weight (grams)
-                <input type="number" min="0.001" max={metalStock} step="0.001" required value={weightGrams} onChange={event => setWeightGrams(event.target.value)} className="mt-1 w-full p-2 rounded bg-slate-950 border border-slate-700 text-white" />
+                <input type="number" min="0.001" max={Math.min(metalStock, 1000)} step="0.001" required value={weightGrams} onChange={event => setWeightGrams(event.target.value)} className="mt-1 w-full p-2 rounded bg-slate-950 border border-slate-700 text-white" />
                 <span className="mt-1 flex items-center justify-between text-[10px] text-slate-500">
                   <span>Available: {metalStock.toFixed(3)}g</span>
                   <span className="flex gap-1">
                     {[0.25, 0.5, 1].map(fraction => (
-                      <button key={fraction} type="button" disabled={metalStock <= 0} onClick={() => setWeightGrams((Math.floor(metalStock * fraction * 1000) / 1000).toString())} className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 disabled:opacity-40">{fraction === 1 ? 'Max' : `${fraction * 100}%`}</button>
+                      <button key={fraction} type="button" disabled={metalStock <= 0} onClick={() => setWeightGrams((Math.floor(Math.min(metalStock, 1000) * fraction * 1000) / 1000).toString())} className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 disabled:opacity-40">{fraction === 1 ? 'Max' : `${fraction * 100}%`}</button>
                     ))}
                   </span>
                 </span>
@@ -218,11 +236,13 @@ export default function ResourceManagementModal() {
                 <input type="number" min="0.5" max="0.9999" step="0.0001" required value={purity} onChange={event => setPurity(event.target.value)} className="mt-1 w-full p-2 rounded bg-slate-950 border border-slate-700 text-white" />
               </label>
             </div>
-            <button type="submit" disabled={!isOwner || minting || !!activeJob || !(Number(weightGrams) > 0) || Number(weightGrams) > metalStock} className="w-full py-2.5 rounded-lg bg-amber-700 hover:bg-amber-600 disabled:opacity-40 font-bold text-sm">
-              {activeJob ? `Waiting for ${activeJob.requiredConfirmations} confirmations…` : minting ? 'Submitting…' : `Mint ${metal} ${form} asset`}
+            </>}
+            <button type="submit" disabled={!isOwner || !hasMint || minting || !!activeJob || !(Number(weightGrams) > 0) || Number(weightGrams) > Math.min(mintMode === 'resource' ? resourceStock : metalStock, 1000)} className="w-full py-2.5 rounded-lg bg-amber-700 hover:bg-amber-600 disabled:opacity-40 font-bold text-sm">
+              {activeJob ? `Waiting for ${activeJob.requiredConfirmations} confirmations…` : minting ? 'Submitting…' : mintMode === 'resource' ? `Mint ${resource} resource` : `Mint ${metal} ${form} asset`}
             </button>
             {!isOwner && <p className="text-xs text-rose-300">Only the owner can issue assets from this plot.</p>}
-            {activeJob && <p className="text-[10px] text-slate-400">Transaction {activeJob.status}. Reserved metal returns to the plot if the chain rejects the mint.</p>}
+            {!hasMint && <p className="text-xs text-amber-300">Build a Resource Mint on this settlement to issue assets.</p>}
+            {activeJob && <p className="text-[10px] text-slate-400">Transaction {activeJob.status}. Reserved stock returns to the plot if the chain rejects the mint.</p>}
           </form>
 
           {ownedPlots.length > 1 && (

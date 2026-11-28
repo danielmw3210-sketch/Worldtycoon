@@ -46,6 +46,7 @@ function round(n, places = 6) {
 }
 
 const ARMY_SILVER_PER_TILE_PER_SOLDIER = 0.01;
+const PLOT_RESOURCES = ['wood', 'iron', 'tin', 'copper', 'silver', 'gold'];
 
 function itemIsUsable(item) {
   return !!item && (item.health === undefined || Number(item.health) > 0);
@@ -383,17 +384,12 @@ class GameStore {
 
   _tickPlotResources(plot, tickHours) {
     const stockpile = plot.stockpile || (plot.stockpile = { wood: 24, iron: 6, tin: 0, copper: 0, silver: 0, gold: 0 });
-    const deposits = plot.resourceDeposits || (plot.resourceDeposits = {});
+    stockpile.wood = +(Number(stockpile.wood || 0) + 5 * tickHours).toFixed(9);
+    const settlementLevel = Math.max(1, Number(plot.building?.level) || 1);
     for (const structure of (plot.structures || [])) {
-      if (!structure.resource || !(Number(deposits[structure.resource]) > 0)) continue;
-      const output = Number(structure.outputPerHour || 0) * Math.max(1, Number(structure.level) || 1) * tickHours;
-      const produced = structure.resource === 'wood'
-        ? output
-        : Math.min(Number(deposits[structure.resource]), output);
-      if (structure.resource !== 'wood') {
-        deposits[structure.resource] = +(Number(deposits[structure.resource]) - produced).toFixed(3);
-      }
-      stockpile[structure.resource] = +(Number(stockpile[structure.resource] || 0) + produced).toFixed(3);
+      if (!PLOT_RESOURCES.includes(structure.resource)) continue;
+      const output = Number(structure.outputPerHour || 0) * Math.max(1, Number(structure.level) || 1) * settlementLevel * tickHours;
+      stockpile[structure.resource] = +(Number(stockpile[structure.resource] || 0) + output).toFixed(9);
     }
   }
 
@@ -406,6 +402,7 @@ class GameStore {
     if (plot.building?.type !== 'peasant_lodge') throw new Error('Only a Peasant Lodge plot can be developed in this game phase');
     const definitions = {
       forge: { name: 'Settlement Forge', resource: null, rate: 0, cost: { wood: 12, iron: 2 } },
+      resource_mint: { name: 'Resource Mint', resource: null, rate: 0, cost: { wood: 12, iron: 2 } },
       woodcutter: { name: 'Woodcutter Camp', resource: 'wood', rate: 15, cost: { wood: 10 } },
       iron_mine: { name: 'Iron Mine', resource: 'iron', rate: 8, cost: { wood: 12 } },
       tin_mine: { name: 'Tin Mine', resource: 'tin', rate: 7, cost: { wood: 12 } },
@@ -415,7 +412,6 @@ class GameStore {
     };
     const definition = definitions[structureType];
     if (!definition) throw new Error('Choose a valid settlement building');
-    if (definition.resource && !(Number(plot.resourceDeposits?.[definition.resource]) > 0)) throw new Error(`This plot has no ${definition.resource} deposit`);
     if (!plot.structures?.length) plot.structures = [{ type: 'peasant_lodge', name: 'Peasant Lodge', level: 1 }];
     const builtCount = plot.structures.filter(s => s.type !== 'peasant_lodge').length;
     if (builtCount >= Number(plot.building.level || 1)) throw new Error('Upgrade the Peasant Lodge to unlock another building plot');
@@ -424,7 +420,7 @@ class GameStore {
     for (const [resource, amount] of Object.entries(definition.cost)) {
       if (Number(stockpile[resource] || 0) < amount) throw new Error(`Requires ${amount} ${resource}`);
     }
-    for (const [resource, amount] of Object.entries(definition.cost)) stockpile[resource] = +(stockpile[resource] - amount).toFixed(3);
+    for (const [resource, amount] of Object.entries(definition.cost)) stockpile[resource] = +(stockpile[resource] - amount).toFixed(9);
     plot.structures.push({ type: structureType, name: definition.name, resource: definition.resource, outputPerHour: definition.rate, level: 1, builtAt: new Date().toISOString() });
     this.scheduleSave();
     return plot;
@@ -475,11 +471,18 @@ class GameStore {
   mintPlotMetal({ plotId, username, metal, form, weightGrams, purity }) {
     const plot = this.getPlotById(plotId);
     const clean = String(username || '').replace(/^@/, '').toLowerCase();
-    if (!plot?.isClaimed || String(plot.owner || '').replace(/^@/, '').toLowerCase() !== clean) {
+    if (!plot?.isClaimed || plot.nftState?.stage === 'pending' || String(plot.owner || '').replace(/^@/, '').toLowerCase() !== clean) {
       throw new Error('Only the plot owner can mint its stored metals');
     }
     if (plot.building?.type !== 'peasant_lodge') {
       throw new Error('Metal assets can only be issued from a settlement plot');
+    }
+    if (!(plot.structures || []).some(structure => structure.type === 'resource_mint')) {
+      throw new Error('Build a Resource Mint on this plot first');
+    }
+    if (!['live', 'simulate'].includes(chainAdapter.mode)) throw new Error(`Chain unavailable: ${chainAdapter.reason}`);
+    if (chainAdapter.mode === 'live' && CONFIG.NUMISTA.NETTYPE === 'numista-mainnet') {
+      throw new Error('Resource and metal minting is disabled on mainnet until transaction recovery is safe');
     }
     if (mintQueue.getJobForPlot(plotId)) {
       throw new Error('Wait for the current plot transaction to confirm before minting');
@@ -490,8 +493,8 @@ class GameStore {
 
     const weight = Number(weightGrams);
     const stockpile = plot.stockpile || (plot.stockpile = {});
-    if (!Number.isFinite(weight) || weight <= 0 || weight > 1000) {
-      throw new Error('Enter a weight greater than 0 and no more than 1000 grams');
+    if (!Number.isFinite(weight) || weight <= 0 || weight > 1000 || Math.abs(weight * 1000 - Math.round(weight * 1000)) > 1e-8) {
+      throw new Error('Enter a weight from 0.001 to 1000 grams in increments of 0.001');
     }
     if (weight > Number(stockpile[metal] || 0)) {
       throw new Error(`Not enough ${metal} in this plot's stockpile`);
@@ -517,9 +520,11 @@ class GameStore {
       unit: '0.001 fine grams',
       sprite: assetSprite('resource', `${metal}_${form === 'bar' ? 'bar' : 'coin'}`)
     };
-    const assetId = sha256Hex(`goldnumista:plot-metal:v1:${plot.id}:${metal}:${form}:${purityValue}`);
+    const assetId = sha256Hex(`goldnumista:plot-metal:v2:${plot.id}:${clean}:${metal}:${form}:${purityValue}`);
     saveDeedMetadata(assetId, metadata);
-    const assetMetadataHash = readDeedMetadata(assetId)?.metadataHash || metadataHash(metadata);
+    const savedMetadata = readDeedMetadata(assetId);
+    if (!savedMetadata?.verified || savedMetadata.metadataHash !== metadataHash(metadata)) throw new Error('Metal asset metadata does not match');
+    const assetMetadataHash = savedMetadata.metadataHash;
     const snapshot = {
       metal,
       weightGrams: weight,
@@ -527,7 +532,8 @@ class GameStore {
       assetId
     };
 
-    stockpile[metal] = +(Number(stockpile[metal]) - weight).toFixed(3);
+    const registrationSteps = this._registrationSteps([clean]);
+    stockpile[metal] = +(Number(stockpile[metal]) - weight).toFixed(9);
     try {
       const job = mintQueue.enqueue({
         type: 'plot_metal_mint',
@@ -586,7 +592,75 @@ class GameStore {
         job: mintQueue.publicJob(job)
       };
     } catch (err) {
-      stockpile[metal] = +(Number(stockpile[metal] || 0) + weight).toFixed(3);
+      stockpile[metal] = +(Number(stockpile[metal] || 0) + weight).toFixed(9);
+      registrationSteps.forEach(step => this.pendingUsernameRegistrations.delete(step.operation.username));
+      throw err;
+    }
+  }
+
+  mintPlotResource({ plotId, username, resource, amount }) {
+    const plot = this.getPlotById(plotId);
+    const clean = String(username || '').replace(/^@/, '').toLowerCase();
+    if (!plot?.isClaimed || plot.nftState?.stage === 'pending' || String(plot.owner || '').replace(/^@/, '').toLowerCase() !== clean) {
+      throw new Error('Only the owner of a confirmed plot can mint its resources');
+    }
+    if (plot.building?.type !== 'peasant_lodge' || !(plot.structures || []).some(structure => structure.type === 'resource_mint')) {
+      throw new Error('Build a Resource Mint on this settlement first');
+    }
+    if (!['live', 'simulate'].includes(chainAdapter.mode)) throw new Error(`Chain unavailable: ${chainAdapter.reason}`);
+    if (chainAdapter.mode === 'live' && CONFIG.NUMISTA.NETTYPE === 'numista-mainnet') {
+      throw new Error('Resource and metal minting is disabled on mainnet until transaction recovery is safe');
+    }
+    if (mintQueue.getJobForPlot(plotId)) throw new Error('Wait for the current plot transaction to confirm before minting');
+    if (!PLOT_RESOURCES.includes(resource)) throw new Error('Choose a valid resource');
+    const quantity = Number(amount);
+    const units = Math.round(quantity * CONFIG.CHAIN.UNITS_PER_NUM);
+    if (!Number.isFinite(quantity) || quantity <= 0 || quantity > 1000 ||
+        !Number.isSafeInteger(units) || Math.abs(quantity * CONFIG.CHAIN.UNITS_PER_NUM - units) > 1e-8) {
+      throw new Error('Enter an amount from 0.001 to 1000 in increments of 0.001');
+    }
+    const stockpile = plot.stockpile || (plot.stockpile = {});
+    if (quantity > Number(stockpile[resource] || 0)) throw new Error(`Not enough ${resource} in this plot's stockpile`);
+
+    const assetId = sha256Hex(`goldnumista:plot-resource:v1:${plot.id}:${clean}:${resource}`);
+    const metadata = {
+      app: 'goldnumista',
+      schema: 'goldnumista.plot-resource/v1',
+      name: `${resource[0].toUpperCase()}${resource.slice(1)} resource`,
+      originPlotId: plot.id,
+      issuer: clean,
+      resource,
+      unit: '0.001 resource units',
+      sprite: assetSprite('resource', resource)
+    };
+    saveDeedMetadata(assetId, metadata);
+    const saved = readDeedMetadata(assetId);
+    if (!saved?.verified || saved.metadataHash !== metadataHash(metadata)) throw new Error('Resource asset metadata does not match');
+    const registrationSteps = this._registrationSteps([clean]);
+    stockpile[resource] = +(Number(stockpile[resource]) - quantity).toFixed(9);
+    try {
+      const job = mintQueue.enqueue({
+        type: 'plot_resource_mint',
+        username: clean,
+        plotId: plot.id,
+        assetId,
+        snapshot: { resource, amount: quantity },
+        meta: { name: `${quantity} ${resource} from ${plot.name}` },
+        steps: [
+          ...registrationSteps,
+          { key: 'create', label: `Create ${resource} resource asset`, operation: {
+            accountIndex: 0, kind: 'create_asset', assetId, assetType: 'fungible',
+            maxSupply: CONFIG.CHAIN.MAX_SUPPLY_UNITS, metadataHash: saved.metadataHash
+          } },
+          { key: 'mint', label: `Mint ${quantity} ${resource} to @${clean}`, operation: {
+            accountIndex: 0, kind: 'mint', assetId, assetType: 'fungible', recipient: clean, amountUnits: units
+          } }
+        ]
+      });
+      this.scheduleSave();
+      return { pending: true, assetId, resource, amount: quantity, metadata, job: mintQueue.publicJob(job) };
+    } catch (err) {
+      stockpile[resource] = +(Number(stockpile[resource] || 0) + quantity).toFixed(9);
       registrationSteps.forEach(step => this.pendingUsernameRegistrations.delete(step.operation.username));
       throw err;
     }
@@ -670,8 +744,9 @@ class GameStore {
       const assetId = name.slice(0, -5);
       const saved = readDeedMetadata(assetId);
       const metadata = saved?.metadata;
-      if (!saved?.verified || metadata?.schema !== 'goldnumista.plot-metal/v1' ||
-          metadata.metal !== 'silver' || !metadata.issuer ||
+      const silver = (metadata?.schema === 'goldnumista.plot-metal/v1' && metadata.metal === 'silver') ||
+        (metadata?.schema === 'goldnumista.plot-resource/v1' && metadata.resource === 'silver');
+      if (!saved?.verified || !silver || !metadata.issuer ||
           String(metadata.issuer).replace(/^@/, '').toLowerCase() === TREASURY) return [];
       return [{ assetId, metadata }];
     });
@@ -739,7 +814,7 @@ class GameStore {
       }
       if (remainingUnits > 0) {
         const availableUnits = silverUnits - remainingUnits;
-        throw new Error(`Attack requires ${(silverUnits / CONFIG.CHAIN.UNITS_PER_NUM).toFixed(3)} fine grams of player-minted silver for ${plan.soldiers.length} soldiers across ${plan.distance} tiles; available ${(availableUnits / CONFIG.CHAIN.UNITS_PER_NUM).toFixed(3)}g`);
+        throw new Error(`Attack requires ${(silverUnits / CONFIG.CHAIN.UNITS_PER_NUM).toFixed(3)} units of player-minted silver for ${plan.soldiers.length} soldiers across ${plan.distance} tiles; available ${(availableUnits / CONFIG.CHAIN.UNITS_PER_NUM).toFixed(3)}`);
       }
 
       const registrationSteps = this._registrationSteps([plan.clean, TREASURY]);
@@ -747,7 +822,7 @@ class GameStore {
         ...registrationSteps,
         ...silverTransfers.map((transfer, index) => ({
           key: `silver_pay_${index + 1}`,
-          label: `Pay ${(transfer.amountUnits / CONFIG.CHAIN.UNITS_PER_NUM).toFixed(3)} fine grams of silver`,
+          label: `Pay ${(transfer.amountUnits / CONFIG.CHAIN.UNITS_PER_NUM).toFixed(3)} units of silver`,
           operation: {
             accountIndex: 0,
             kind: 'transfer',
@@ -1052,14 +1127,15 @@ class GameStore {
         const hash = candidate.job?.snapshot?.metadataHash || readDeedMetadata(candidate.assetId || deedAssetId(plot.id))?.metadataHash || metadataHash(metadata);
         const mintedAt = candidate.mint?.submittedAt || asset.created_at || new Date().toISOString();
 
+        const recoveringPlot = !plot.isClaimed;
         plot.isClaimed = true;
         plot.owner = plot.isCastle ? (plot.castleOwner || TREASURY) : owner;
         plot.building = plot.building || building;
         if (!plot.structures?.length) plot.structures = [{ type: 'peasant_lodge', name: 'Peasant Lodge', level: 1 }];
-        if (candidate.job?.snapshot?.resourceDeposits) {
+        if (recoveringPlot && candidate.job?.snapshot?.resourceDeposits) {
           plot.resourceSeed = candidate.job.snapshot.resourceSeed;
-          plot.resourceDeposits = candidate.job.snapshot.resourceDeposits;
-          plot.stockpile = candidate.job.snapshot.stockpile || plot.stockpile;
+          plot.resourceDeposits = { ...candidate.job.snapshot.resourceDeposits };
+          if (candidate.job.snapshot.stockpile) plot.stockpile = { ...candidate.job.snapshot.stockpile };
         }
         plot.stockpile ||= { wood: 24, iron: 6, tin: 0, copper: 0, silver: 0, gold: 0 };
         plot.lastResourceAt ||= new Date().toISOString();
@@ -1240,7 +1316,7 @@ class GameStore {
         const current = Number(stats.accruedIncome) || 0;
         stats.accruedIncome = +Math.min(cap, current + plot.building.incomePerHour * tickHours).toFixed(6);
       }
-      if (plot.isClaimed) this._tickPlotResources(plot, tickHours);
+      if (plot.isClaimed && plot.nftState?.stage !== 'pending') this._tickPlotResources(plot, tickHours);
     });
 
     let militaryChanged = false;
@@ -2475,7 +2551,7 @@ class GameStore {
         this.scheduleSave();
         return;
       }
-      if (job.type === 'plot_metal_mint') {
+      if (job.type === 'plot_metal_mint' || job.type === 'plot_resource_mint') {
         this.scheduleSave();
         return;
       }
@@ -2634,8 +2710,8 @@ class GameStore {
         plot.building = plot.building || job.snapshot?.building || this._claimBuilding(plot, amount);
         if (job.snapshot?.resourceDeposits) {
           plot.resourceSeed = job.snapshot.resourceSeed;
-          plot.resourceDeposits = job.snapshot.resourceDeposits;
-          plot.stockpile = job.snapshot.stockpile || plot.stockpile;
+          plot.resourceDeposits = { ...job.snapshot.resourceDeposits };
+          if (job.snapshot.stockpile) plot.stockpile = { ...job.snapshot.stockpile };
         }
         plot.pendingJobId = null;
         plot.nftState = {
@@ -3029,7 +3105,17 @@ class GameStore {
         const metal = job.snapshot?.metal;
         if (plot && ['silver', 'gold'].includes(metal)) {
           const stockpile = plot.stockpile || (plot.stockpile = {});
-          stockpile[metal] = +(Number(stockpile[metal] || 0) + Number(job.snapshot?.weightGrams || 0)).toFixed(3);
+          stockpile[metal] = +(Number(stockpile[metal] || 0) + Number(job.snapshot?.weightGrams || 0)).toFixed(9);
+        }
+        this.scheduleSave();
+        return;
+      }
+      if (job.type === 'plot_resource_mint') {
+        const plot = this.getPlotById(job.plotId);
+        const resource = job.snapshot?.resource;
+        if (plot && PLOT_RESOURCES.includes(resource)) {
+          const stockpile = plot.stockpile || (plot.stockpile = {});
+          stockpile[resource] = +(Number(stockpile[resource] || 0) + Number(job.snapshot?.amount || 0)).toFixed(9);
         }
         this.scheduleSave();
         return;

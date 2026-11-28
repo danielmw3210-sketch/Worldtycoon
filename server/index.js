@@ -651,6 +651,21 @@ app.post('/api/plots/:id/metal-mint', (req, res) => {
     res.status(400).json({ error: err.message });
   }
 });
+app.post('/api/plots/:id/resource-mint', (req, res) => {
+  try {
+    const username = requireSessionUser(req, res);
+    if (!username) return;
+    const result = gameStore.mintPlotResource({
+      plotId: req.params.id,
+      username,
+      resource: req.body?.resource,
+      amount: req.body?.amount
+    });
+    res.json({ success: true, ...result, plot: toPublicPlot(gameStore.getPlotById(req.params.id)) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
 app.post('/api/army/create', (req, res) => { try { const username = requireSessionUser(req, res); if (!username) return; res.json({ success: true, army: gameStore.createArmy(username, req.body?.name, req.body?.soldierIds) }); } catch (err) { res.status(400).json({ error: err.message }); } });
 app.get('/api/army/:id/march-estimate', async (req, res) => {
   try {
@@ -2126,32 +2141,34 @@ app.get('/api/admin/summary', async (req, res) => {
 });
 
 app.get('/api/network', async (req, res) => {
-  const net = await numistaRpc.getNetworkInfo();
   const capabilities = await chainAdapter.capabilities();
-  const treasuryBal = chainLedger.getBalance(CONFIG.CHAIN.TREASURY_USERNAME);
-  let crownEstateFund = {
+  const net = capabilities.mode === 'simulate'
+    ? { height: capabilities.chainHeight, online: true, mode: 'simulated', nettype: 'simulated', syncStatus: null }
+    : await numistaRpc.getNetworkInfo();
+  const treasuryBal = CONFIG.CHAIN.TREASURY_USERNAME
+    ? chainLedger.getBalance(CONFIG.CHAIN.TREASURY_USERNAME)
+    : null;
+  let crownEstateFund = treasuryBal ? {
     available: true,
     balance: treasuryBal.available,
     unlockedBalance: treasuryBal.available,
     pendingBalance: treasuryBal.pending,
     source: 'chain_ledger'
-  };
-  try {
-    const watchOnly = await numistaRpc.getCrownEstateFundBalance();
-    crownEstateFund = {
-      available: true,
-      balance: +(Number(watchOnly.balance || 0) + treasuryBal.available).toFixed(6),
-      unlockedBalance: +(Number(watchOnly.unlockedBalance || 0) + treasuryBal.available).toFixed(6),
-      pendingBalance: +(Number(watchOnly.pendingBalance || 0) + treasuryBal.pending).toFixed(6),
-      source: 'combined'
-    };
-  } catch { /* use @crown_treasury chainLedger balance */ }
-  // The simulated chain still has a height and is usable, so surface it even
-  // when no daemon is reachable.
-  if (!net.height && capabilities.chainHeight) {
+  } : { available: false, error: 'Treasury username is not configured' };
+  if (treasuryBal) {
+    try {
+      const watchOnly = await numistaRpc.getCrownEstateFundBalance();
+      crownEstateFund = {
+        available: true,
+        balance: +(Number(watchOnly.balance || 0) + treasuryBal.available).toFixed(6),
+        unlockedBalance: +(Number(watchOnly.unlockedBalance || 0) + treasuryBal.available).toFixed(6),
+        pendingBalance: +(Number(watchOnly.pendingBalance || 0) + treasuryBal.pending).toFixed(6),
+        source: 'combined'
+      };
+    } catch { /* use configured treasury chainLedger balance */ }
+  }
+  if (capabilities.mode !== 'simulate' && !net.height && capabilities.chainHeight) {
     net.height = capabilities.chainHeight;
-    net.online = true;
-    net.mode = capabilities.mode === 'simulate' ? 'simulated' : net.mode;
   }
   res.json({
     network: net,

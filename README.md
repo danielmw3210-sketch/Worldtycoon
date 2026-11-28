@@ -2,25 +2,25 @@
 
 Worldtycoon is an experimental UK land, settlement, and strategy game with a
 React/Vite frontend and an Express backend. It is designed to integrate with
-the Numista testnet asset and wallet RPCs.
+Numista mainnet asset and wallet RPCs, with separate simulation and testnet modes.
 
-> **Experimental software:** Numista testnet balances, deeds, and assets have
-> no production or monetary value. The project is not a payment processor or
-> financial service. Do not use real funds or expose private RPC services to
-> the public internet.
+> **Experimental software:** Mainnet operations may affect real assets.
+> The game and its transaction recovery are not yet production-ready. Do not
+> use real funds or expose private RPC services to the public internet.
 
 ## What is implemented
 
 - **UK land map:** A deterministic, seeded registry of 3,500 plots by default
-  (50 columns × 70 rows). Plot rarity, prices, labels, and resource deposits
+  (50 columns × 70 rows). Plot rarity, prices, labels, and legacy resource deposits
   are generated from the configured grid seed. Hand-authored landmarks are
   pinned to the map.
 - **Land and settlement progression:** Claim a plot, develop its Peasant Lodge
   through level 10, and collect accrued property income. Level 5 becomes a
   Motte-and-Bailey; level 10 becomes a player-owned Castle Keep.
-- **Plot resources:** Build a Woodcutter Camp for renewable wood or mines for
-  finite iron, tin, copper, silver, and gold deposits. Production and stockpiles
-  belong to the plot.
+- **Plot resources:** Every claimed plot produces 5 wood per hour for free.
+  Build resource structures on any settlement for unlimited wood, iron, tin,
+  copper, silver, or gold production. Their output scales with settlement level,
+  and stockpiles belong to the plot.
 - **Forge and armies:** Build a Settlement Forge, craft bronze and iron weapons
   or armor, equip soldiers, recruit troops, form armies, and march or siege.
   Army marches and attacks use a distance-based silver payroll.
@@ -28,9 +28,10 @@ the Numista testnet asset and wallet RPCs.
   zoom in to see additional buildings. Settlement, resource, troop, equipment,
   and metal artwork also appears in their respective panels. Artwork is bundled
   locally in `public/assets` and is included in production builds.
-- **Owner-issued metal assets:** Owners can submit stored silver or gold as
-  fungible Numista assets in coin or bar form. The plot stock is reserved for
-  the transaction and restored if it reverts.
+- **Owner-issued assets:** A Resource Mint lets the owner issue any stored
+  resource as a fungible Numista asset, or issue silver and gold as coins or
+  bars. Stock is reserved while the transaction is pending and restored if it
+  definitively fails.
 - **Other game systems:** Peerage, castles, town-hall taxes, banking, stocks,
   auctions, coin collections, account/deed views, and blockchain explorers.
 - **Mining:** A RandomX worker can connect to a configured Stratum endpoint;
@@ -39,7 +40,7 @@ the Numista testnet asset and wallet RPCs.
   share API are disabled because their share verification and payout
   accounting are not production-ready; use a trusted external pool instead.
 - **Chain modes:** Use a local simulated chain for development, or connect a
-  compatible Numista testnet daemon and wallet RPC for live testnet operations.
+  compatible Numista daemon and wallet RPC for mainnet or testnet operations.
 
 ### Settlement progression and buildings
 
@@ -50,12 +51,13 @@ the Numista testnet asset and wallet RPCs.
 | 10 | Castle Keep (1,000 maximum integrity) |
 
 Each settlement level allows one additional structure slot, up to 10. The
-current structure catalogue has seven distinct options; duplicate structures
-are not allowed, and a mine can only be built where the plot has that deposit.
+current structure catalogue has eight distinct options; duplicate structures
+are not allowed. All resource buildings can be built on any settlement.
 
 | Structure | Production | Build cost |
 | --- | ---: | --- |
 | Settlement Forge | — | 12 wood + 2 iron |
+| Resource Mint | — | 12 wood + 2 iron |
 | Woodcutter Camp | 15 wood/hour | 10 wood |
 | Iron Mine | 8 iron/hour | 12 wood |
 | Tin Mine | 7 tin/hour | 12 wood |
@@ -63,15 +65,30 @@ are not allowed, and a mine can only be built where the plot has that deposit.
 | Silver Mine | 3.5 silver/hour | 16 wood + 2 iron |
 | Gold Mine | 2 gold/hour | 20 wood + 4 iron |
 
-The starting stockpile includes 24 wood and 6 iron. Bronze equipment consumes
+The listed hourly rates are multiplied by settlement level (and structure
+level). The free 5 wood/hour is additional and does not scale. Legacy deposit
+values are retained in saved data but no longer limit production. Production
+ticks while the server is running; offline time is not accrued. The starting
+stockpile includes 24 wood and 6 iron. Bronze equipment consumes
 tin and copper; iron equipment consumes iron. Production rates are game values,
-not real-world extraction rates.
+not real-world extraction rates. Resource assets use 1,000 chain units per
+resource unit; coin and bar assets retain their fine-gram representation.
+Existing silver assets and newly minted silver resource units can both pay army
+payroll.
+
+**Production limitation:** The mint queue and plot state are persisted
+separately, and submitted transactions can be retried or refunded after an
+ambiguous chain outcome. Crash-safe, exactly-once minting and reconciliation
+have not been established. Do not use resource or metal minting with real
+funds until these issues are resolved and live chain behavior is validated.
+Resource and metal minting is disabled on mainnet for this reason; simulation
+and live testnet remain available.
 
 ## Requirements
 
 - Node.js **22.5 or later** (see `package.json`).
 - npm.
-- For live chain transactions: a synchronized Numista testnet daemon with the
+- For live chain transactions: a synchronized Numista daemon on the configured network with the
   required asset RPCs and an accessible, authenticated wallet RPC.
 - For local simulation: no external Numista node is required.
 
@@ -132,17 +149,23 @@ Set `NUMISTA_CHAIN_MODE` before starting the backend:
 | Mode | Behavior |
 | --- | --- |
 | `simulate` | Uses a local simulated chain and confirmation queue. Intended for development and tests; it does not create real Numista transactions. |
-| `live` | Requires a compatible Numista testnet daemon and wallet RPC. If the required services or asset methods are unavailable, chain operations remain disabled. |
+| `live` | Requires a compatible Numista daemon and wallet RPC on the configured network. If the required services or asset methods are unavailable, chain operations remain disabled. |
 | `auto` | Probes the live services and uses them only when ready; otherwise chain operations remain disabled. It does not silently switch to simulation. |
 | `off` | Disables chain operations. |
 
-The default is `live`. For testnet operation, configure the daemon and wallet
-RPC URLs and credentials in `.env`; keep both RPCs bound to loopback or another
-private, access-controlled network. Do not expose wallet RPC or unrestricted
-daemon RPC to the public internet.
+The default chain mode is `live` and the default network is `mainnet`.
+Mainnet requires explicit private daemon and wallet RPC URLs, issuer identity
+and wallet, treasury username and address, and NUM currency asset ID. The
+daemon must report mainnet and confirm synchronization, and the configured NUM
+asset must match the expected metadata. Missing or mismatched settings leave
+chain operations disabled. Set `NUMISTA_NETWORK=testnet` explicitly for a
+separate testnet deployment.
 
-See [gamedev.md](./gamedev.md) for Numista testnet ports, local node and wallet
-setup, RPC details, and Windows scripts.
+Keep both RPCs on loopback or another private, access-controlled network. Do not
+expose wallet RPC or unrestricted daemon RPC to the public internet.
+
+See [gamedev.md](./gamedev.md) for historical testnet node and wallet setup and
+RPC details. Its testnet scripts and ports are not mainnet configuration.
 
 ## Common commands
 
@@ -169,13 +192,17 @@ additional node, wallet, and mining settings.
 | --- | --- |
 | `PORT` | Express server port (default `3001`) |
 | `NUMISTA_CHAIN_MODE` | `live`, `simulate`, `auto`, or `off` |
+| `NUMISTA_NETWORK` | `mainnet` (default) or `testnet` |
+| `NUMISTA_METADATA_DIR` | Optional directory for immutable deed and asset metadata |
 | `NUMISTA_CONFIRMATIONS` | Confirmations required before queued operations settle (default `10`) |
-| `NUMISTA_DAEMON_RPC` | Numista daemon RPC URL (default `http://127.0.0.1:48081`) |
-| `NUMISTA_WALLET_RPC` | Numista wallet RPC URL (default `http://127.0.0.1:48083`) |
+| `NUMISTA_DAEMON_RPC` | Private daemon RPC URL (required for mainnet) |
+| `NUMISTA_WALLET_RPC` | Private wallet RPC URL (required for mainnet) |
 | `NUMISTA_WALLET_LOGIN_FILE` | Path to the wallet RPC login file |
 | `NUMISTA_RPC_USER`, `NUMISTA_RPC_PASS` | Wallet RPC credentials, when not using a login file |
 | `NUMISTA_ISSUER_PUBLIC_KEY` | Public key configured for the asset issuer |
 | `NUMISTA_ISSUER_WALLET`, `NUMISTA_ISSUER_WALLET_PASSWORD` | Issuer wallet configuration; keep passwords private |
+| `NUMISTA_TREASURY_USER`, `NUMISTA_TREASURY_ADDRESS` | Mainnet treasury username and native address |
+| `NUMISTA_CURRENCY_ASSET_ID` | Verified mainnet NUM currency asset ID |
 | `NUMISTA_SESSION_SECRET` | Secret used to sign game session tokens; set a unique random value |
 | `NUMISTA_ADMIN_PASSWORD` | Optional password override for admin vault wallet login; no default is provided |
 | `NUMISTA_ADMINS` | Comma-separated game administrator usernames |
@@ -246,7 +273,7 @@ request and response details.
   non-automatic reconciliation for uncertain transfers; review the operational
   requirements in [MINING_LIMITATIONS.md](./MINING_LIMITATIONS.md) before
   enabling real payments. Crypto swaps are not implemented.
-- Live chain features require a compatible Numista testnet node and wallet
+- Live chain features require a compatible Numista node and wallet
   build. The simulator is not a production blockchain.
 - `deploy/setup-vps.sh` and deployment templates are starting points, not a
   verified turnkey production deployment. Check the Node.js version and review
@@ -264,7 +291,14 @@ npm run build
 NUMISTA_CHAIN_MODE=live npm start
 ```
 
-Set `PORT` and all live RPC/wallet settings through the service manager. Place
+On Oracle, set `NUMISTA_NETWORK=mainnet`, `PORT`, and all live RPC/wallet
+settings through the service manager. A public web endpoint is not a reason to
+expose daemon or wallet RPCs. Before switching an existing installation, back
+up its state and reconcile all queued transactions against the intended chain;
+the queue and game state are not automatically migrated or isolated by network.
+Do not replay testnet or simulated jobs on mainnet.
+
+Place
 the app behind HTTPS and a reverse proxy, keep daemon and wallet RPC private,
 and provision persistent storage for `server/data/`. The `deploy/` directory
 contains Nginx and systemd examples; adapt them to the host before enabling
